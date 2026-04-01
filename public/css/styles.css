@@ -2231,3 +2231,45 @@ body {
     overflow: hidden;
   }
 }
+
+/* ─── Mobile Calendar Full-Screen Fix ─────────────────────── */
+@media (max-width: 768px) {
+  .mobile-view {
+    display: flex;
+    flex-direction: column;
+    height: calc(100vh - 120px);
+    min-height: 500px;
+    padding: 0;
+    overflow: hidden;
+  }
+  
+  .mcal-header {
+    flex-shrink: 0;
+  }
+  
+  .mcal-dow {
+    flex-shrink: 0;
+  }
+  
+  .mcal-scroll-container {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    overflow-x: hidden;
+  }
+  
+  .mcal-weeks {
+    display: grid;
+    grid-template-columns: repeat(7, 1fr);
+  }
+  
+  .mcal-week {
+    display: contents;
+  }
+  
+  .mcal-day {
+    min-height: 60px;
+    border: 1px solid var(--color-border);
+    margin: -0.5px;
+  }
+}

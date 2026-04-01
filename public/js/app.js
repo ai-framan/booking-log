@@ -111,12 +111,14 @@ function setupEventListeners() {
   });
 
   // Responsive switch
+  let _mobileCalendarInited = false;
   const checkMobile = () => {
     const isMobile = window.innerWidth < 769;
     document.getElementById('desktop-view').classList.toggle('hidden', isMobile);
     document.getElementById('mobile-view').classList.toggle('hidden', !isMobile);
-    if (isMobile) {
-      setTimeout(() => MobileCalendar.init(), 50);
+    if (isMobile && !_mobileCalendarInited) {
+      _mobileCalendarInited = true;
+      setTimeout(() => MobileCalendar.init(), 100);
     }
   };
   window.addEventListener('resize', checkMobile);
