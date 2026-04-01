@@ -700,6 +700,9 @@ async function handleDayModalAdd(slot) {
       date: selectedDate, slot, time, party_size, customer_name, notes, is_private_event: isPrivate
     }, auth.getToken());
     showToast(isPrivate ? 'Private Event set! Slot locked.' : 'Booking added! (Pending confirmation)');
+    // Wake up server then load
+    await fetch('/api/health');
+    await new Promise(r => setTimeout(r, 800));
     await loadBookings();
     openDayModal(selectedDate);
   } catch (err) {
@@ -787,6 +790,8 @@ async function handleMobileQuickAdd(slot) {
     nameInput.value = '';
     paxInput.value = '2';
     showToast('Booking added!');
+    await fetch('/api/health');
+    await new Promise(r => setTimeout(r, 800));
     await loadBookings();
     renderMobileBookings();
   } catch (err) {
@@ -917,6 +922,8 @@ async function handleBookingSubmit(e) {
     await api.createBooking(booking, auth.getToken());
     closeModal();
     showToast('Booking created successfully!');
+    await fetch('/api/health');
+    await new Promise(r => setTimeout(r, 800));
     await loadBookings();
     openMobilePanel(selectedDate);
   } catch (err) {
