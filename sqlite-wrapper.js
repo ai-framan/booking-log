@@ -63,8 +63,8 @@ async function initDb() {
     const bcrypt = require('bcryptjs');
     const hashed = bcrypt.hashSync('admin123', 10);
     db.run(
-      "INSERT INTO users (email, password, display_name, role) VALUES (?, ?, ?, ?)",
-      ['admin@bookinglog.com', hashed, 'Administrator', 'admin']
+      "INSERT INTO users (email, password, display_name, role, status) VALUES (?, ?, ?, ?, ?)",
+      ['admin@bookinglog.com', hashed, 'Administrator', 'admin', 'active']
     );
     console.log('Admin created: admin@bookinglog.com / admin123');
   }
