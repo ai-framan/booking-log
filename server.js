@@ -4,6 +4,7 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const path = require('path');
 const db = require('./sqlite-wrapper');
+const { nowHK } = db;
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -40,8 +41,8 @@ function adminOnly(req, res, next) {
 
 function logAction(action, targetId, actorId, actorName, details) {
   db.run(
-    'INSERT INTO system_logs (action, target_id, actor_id, actor_name, details) VALUES (?, ?, ?, ?, ?)',
-    [action, targetId, actorId, actorName, details ? JSON.stringify(details) : null]
+    'INSERT INTO system_logs (action, target_id, actor_id, actor_name, details, created_at) VALUES (?, ?, ?, ?, ?, ?)',
+    [action, targetId, actorId, actorName, details ? JSON.stringify(details) : null, nowHK()]
   );
 }
 
@@ -57,7 +58,7 @@ app.post('/api/auth/register', (req, res) => {
     return res.status(409).json({ error: { code: 'EMAIL_EXISTS', message: 'Email already registered' } });
   }
   const hashed = bcrypt.hashSync(password, 10);
-  const result = db.run('INSERT INTO users (email, password, display_name, status) VALUES (?, ?, ?, ?)', [email, hashed, display_name, 'pending']);
+  const result = db.run('INSERT INTO users (email, password, display_name, status, created_at) VALUES (?, ?, ?, ?, ?)', [email, hashed, display_name, 'pending', nowHK()]);
   const user = { id: result.lastInsertRowid, email, display_name, role: 'member', status: 'pending' };
   logAction('user_registered', String(user.id), user.id, display_name, { email, display_name });
   res.json({ data: { message: 'Registration submitted. Awaiting admin approval.', user } });
@@ -166,11 +167,11 @@ app.post('/api/bookings', authenticate, (req, res) => {
     }
 
     const result = db.run(`
-      INSERT INTO bookings (user_id, date, slot, time, party_size, customer_name, customer_phone, notes, status, is_private_event)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?)
+      INSERT INTO bookings (user_id, date, slot, time, party_size, customer_name, customer_phone, notes, status, is_private_event, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?)
     `, [
       req.user.id, date, slot, isPrivate ? '00:00' : (time || '00:00'),
-      effectivePartySize, customer_name, customer_phone || '', notes || '', isPrivate ? 1 : 0
+      effectivePartySize, customer_name, customer_phone || '', notes || '', isPrivate ? 1 : 0, nowHK()
     ]);
 
     // Return success immediately without fetching back (Railway filesystem workaround)
@@ -343,11 +344,12 @@ app.get('/api/system-logs', authenticate, adminOnly, (req, res) => {
 
   if (req.query.start_date) {
     where += ' AND created_at >= ?';
-    params.push(req.query.start_date + 'T00:00:00');
+    // Use space separator (SQLite DATETIME format) so it's compared as HK local time
+    params.push(req.query.start_date + ' 00:00:00');
   }
   if (req.query.end_date) {
     where += ' AND created_at <= ?';
-    params.push(req.query.end_date + 'T23:59:59');
+    params.push(req.query.end_date + ' 23:59:59');
   }
   if (req.query.action) {
     where += ' AND action = ?';

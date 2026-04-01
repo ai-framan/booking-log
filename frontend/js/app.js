@@ -1176,10 +1176,15 @@ function renderSystemLogs(logs) {
 }
 
 function formatLogDate(dateStr) {
-  const d = new Date(dateStr);
-  return d.toLocaleString('en-US', {
+  // Stored string is in HK time (YYYY-MM-DD HH:mm:ss from SQLite in Asia/Hong_Kong TZ).
+  // new Date() interprets 'YYYY-MM-DD HH:mm:ss' as UTC → wrong.
+  // Append GMT offset so it's parsed as HK local time.
+  const d = new Date(dateStr + ' GMT+0800');
+  return d.toLocaleString('en-HK', {
+    timeZone: 'Asia/Hong_Kong',
     month: 'short', day: 'numeric',
-    hour: '2-digit', minute: '2-digit'
+    hour: '2-digit', minute: '2-digit',
+    hour12: false
   });
 }
 

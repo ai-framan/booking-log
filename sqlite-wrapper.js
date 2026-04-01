@@ -6,6 +6,14 @@ const DB_PATH = path.join(__dirname, 'booking.db');
 
 let db = null;
 
+// ─── TIMEZONE HELPERS ─────────────────────────────────
+// Returns current time in Hong Kong as SQLite DATETIME string (YYYY-MM-DD HH:mm:ss)
+function nowHK() {
+  // 'sv-SE' format gives YYYY-MM-DD HH:mm:ss — perfect for SQLite
+  // Combined with timeZone: 'Asia/Hong_Kong' gives HK local time
+  return new Date().toLocaleString('sv-SE', { timeZone: 'Asia/Hong_Kong' }).replace('T', ' ');
+}
+
 async function initDb() {
   const SQL = await initSqlJs();
   
@@ -63,8 +71,8 @@ async function initDb() {
     const bcrypt = require('bcryptjs');
     const hashed = bcrypt.hashSync('admin123', 10);
     db.run(
-      "INSERT INTO users (email, password, display_name, role, status) VALUES (?, ?, ?, ?, ?)",
-      ['admin@bookinglog.com', hashed, 'Administrator', 'admin', 'active']
+      "INSERT INTO users (email, password, display_name, role, status, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+      ['admin@bookinglog.com', hashed, 'Administrator', 'admin', 'active', nowHK()]
     );
     console.log('Admin created: admin@bookinglog.com / admin123');
   }
@@ -121,4 +129,4 @@ function exec(sql) {
   saveDb();
 }
 
-module.exports = { initDb, get, all, run, exec, saveDb };
+module.exports = { initDb, get, all, run, exec, saveDb, nowHK };
