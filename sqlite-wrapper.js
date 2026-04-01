@@ -1,34 +1,26 @@
-const initSqlJs = require('sql.js');
-const fs = require('fs');
-const path = require('path');
+const { createClient } = require('@libsql/client');
 
-const DB_PATH = path.join(__dirname, 'booking.db');
+const TURSO_URL = process.env.TURSO_URL || 'libsql://booking-log-ai-framan.aws-ap-northeast-1.turso.io';
+const TURSO_AUTH_TOKEN = process.env.TURSO_AUTH_TOKEN || '';
 
 let db = null;
 
 // ─── TIMEZONE HELPERS ─────────────────────────────────
 // Returns current time in Hong Kong as SQLite DATETIME string (YYYY-MM-DD HH:mm:ss)
 function nowHK() {
-  // 'sv-SE' format gives YYYY-MM-DD HH:mm:ss — perfect for SQLite
-  // Combined with timeZone: 'Asia/Hong_Kong' gives HK local time
   return new Date().toLocaleString('sv-SE', { timeZone: 'Asia/Hong_Kong' }).replace('T', ' ');
 }
 
 async function initDb() {
-  const SQL = await initSqlJs();
+  const config = {
+    url: TURSO_URL,
+    authToken: TURSO_AUTH_TOKEN
+  };
   
-  try {
-    if (fs.existsSync(DB_PATH)) {
-      const buffer = fs.readFileSync(DB_PATH);
-      db = new SQL.Database(buffer);
-    } else {
-      db = new SQL.Database();
-    }
-  } catch (e) {
-    db = new SQL.Database();
-  }
-
-  db.run(`
+  db = createClient(config);
+  
+  // Create tables if not exist
+  await db.exec(`
     CREATE TABLE IF NOT EXISTS users (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       email TEXT UNIQUE NOT NULL,
@@ -36,9 +28,11 @@ async function initDb() {
       display_name TEXT NOT NULL,
       role TEXT DEFAULT 'member',
       status TEXT DEFAULT 'pending',
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-    );
-
+      created_at TEXT DEFAULT (datetime('now', 'localtime'))
+    )
+  `);
+  
+  await db.exec(`
     CREATE TABLE IF NOT EXISTS bookings (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       user_id INTEGER NOT NULL,
@@ -51,10 +45,12 @@ async function initDb() {
       notes TEXT,
       status TEXT DEFAULT 'pending',
       is_private_event INTEGER DEFAULT 0,
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      created_at TEXT DEFAULT (datetime('now', 'localtime')),
       FOREIGN KEY (user_id) REFERENCES users(id)
-    );
-
+    )
+  `);
+  
+  await db.exec(`
     CREATE TABLE IF NOT EXISTS system_logs (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       action TEXT NOT NULL,
@@ -62,34 +58,25 @@ async function initDb() {
       actor_id INTEGER,
       actor_name TEXT,
       details TEXT,
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-    );
+      created_at TEXT DEFAULT (datetime('now', 'localtime'))
+    )
   `);
-
-  const adminExists = db.exec("SELECT id FROM users WHERE email = 'admin@bookinglog.com'");
-  if (adminExists.length === 0 || adminExists[0].values.length === 0) {
-    const bcrypt = require('bcryptjs');
-    const hashed = bcrypt.hashSync('admin123', 10);
-    db.run(
-      "INSERT INTO users (email, password, display_name, role, status, created_at) VALUES (?, ?, ?, ?, ?, ?)",
-      ['admin@bookinglog.com', hashed, 'Administrator', 'admin', 'active', nowHK()]
-    );
-    console.log('Admin created: admin@bookinglog.com / admin123');
-  }
-
-  saveDb();
-  return db;
-}
-
-function saveDb() {
-  if (!db) return;
+  
+  // Create admin user if not exists
+  const bcrypt = require('bcryptjs');
+  const hashed = bcrypt.hashSync('admin123', 10);
+  
   try {
-    const data = db.export();
-    const buffer = Buffer.from(data);
-    fs.writeFileSync(DB_PATH, buffer);
+    await db.execute({
+      sql: "INSERT INTO users (email, password, display_name, role, status, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+      args: ['admin@bookinglog.com', hashed, 'Administrator', 'admin', 'active', nowHK()]
+    });
+    console.log('Admin created: admin@bookinglog.com / admin123');
   } catch (e) {
-    console.error('Error saving database:', e);
+    // Admin already exists, ignore
   }
+  
+  return db;
 }
 
 function get(sql, params = []) {
@@ -116,17 +103,15 @@ function all(sql, params = []) {
 }
 
 function run(sql, params = []) {
-  db.run(sql, params);
-  saveDb();
+  const result = db.execute({ sql, args: params });
   return {
-    lastInsertRowid: db.exec("SELECT last_insert_rowid()")[0]?.values[0]?.[0] || 0,
-    changes: db.getRowsModified()
+    lastInsertRowid: result.lastInsertRowid || 0,
+    changes: result.rowsAffected || 0
   };
 }
 
 function exec(sql) {
-  db.run(sql);
-  saveDb();
+  db.execute(sql);
 }
 
-module.exports = { initDb, get, all, run, exec, saveDb, nowHK };
+module.exports = { initDb, get, all, run, exec, nowHK };
