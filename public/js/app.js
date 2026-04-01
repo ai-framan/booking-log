@@ -130,13 +130,17 @@ function setupEventListeners() {
 }
 
 // ─── Data Loading ────────────────────────────────────────
-async function loadBookings() {
+async function loadBookings(retryCount = 0) {
   try {
     const token = auth.getToken();
     allBookings = await api.getCalendar(currentYear, currentMonth, token);
     renderCalendar();
     renderMobileBookings();
   } catch (err) {
+    if (retryCount < 3) {
+      await new Promise(r => setTimeout(r, 500 * (retryCount + 1)));
+      return loadBookings(retryCount + 1);
+    }
     showToast('Failed to load bookings: ' + err.message, 'error');
   }
 }
