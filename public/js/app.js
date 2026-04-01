@@ -1015,6 +1015,37 @@ function showLogsView() {
   loadSystemLogs();
 }
 
+// ─── CSV Export ──────────────────────────────────────────
+document.getElementById('btn-export-csv')?.addEventListener('click', async () => {
+  const startDate = document.getElementById('export-start-date')?.value;
+  const endDate = document.getElementById('export-end-date')?.value;
+  
+  let url = '/api/bookings/export/csv';
+  const params = [];
+  if (startDate) params.push(`start_date=${startDate}`);
+  if (endDate) params.push(`end_date=${endDate}`);
+  if (params.length > 0) url += '?' + params.join('&');
+  
+  try {
+    const token = auth.getToken();
+    const res = await fetch(url, { headers: { 'Authorization': `Bearer ${token}` } });
+    if (!res.ok) throw new Error('Export failed');
+    
+    const blob = await res.blob();
+    const downloadUrl = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = downloadUrl;
+    a.download = `bookings_${startDate || 'start'}_to_${endDate || 'end'}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    window.URL.revokeObjectURL(downloadUrl);
+    showToast('CSV downloaded!', 'success');
+  } catch (err) {
+    showToast('Export failed: ' + err.message, 'error');
+  }
+});
+
 // ─── Admin: Pending Users ────────────────────────────────
 async function loadPendingCount() {
   if (!auth.isAdmin()) return;

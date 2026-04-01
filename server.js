@@ -388,6 +388,51 @@ app.get('/api/slots/:date/:slot/capacity', authenticate, (req, res) => {
   });
 });
 
+// ─── CSV EXPORT (ADMIN) ─────────────────────────────────
+app.get('/api/bookings/export/csv', authenticate, adminOnly, (req, res) => {
+  const { start_date, end_date } = req.query;
+  
+  let query = `
+    SELECT b.date, b.slot, b.time, b.customer_name, 
+           b.customer_phone, b.party_size, b.notes, 
+           b.status, u.display_name as booked_by
+    FROM bookings b JOIN users u ON b.user_id = u.id
+  `;
+  let params = [];
+  
+  if (start_date && end_date) {
+    query += ' WHERE b.date >= ? AND b.date <= ?';
+    params = [start_date, end_date];
+  } else if (start_date) {
+    query += ' WHERE b.date >= ?';
+    params = [start_date];
+  } else if (end_date) {
+    query += ' WHERE b.date <= ?';
+    params = [end_date];
+  }
+  
+  query += ' ORDER BY b.date, b.slot, b.time';
+  
+  const bookings = db.all(query, params);
+  
+  const header = 'Date,Slot,Time,Customer Name,Phone,Party Size,Notes,Status,Booked By';
+  const rows = bookings.map(b => {
+    const escape = (val) => (val || '').toString().replace(/"/g, '""');
+    return `"${escape(b.date)}","${escape(b.slot)}","${escape(b.time)}","${escape(b.customer_name)}","${escape(b.customer_phone)}",${b.party_size},"${escape(b.notes)}","${escape(b.status)}","${escape(b.booked_by)}"`;
+  });
+  
+  // UTF-8 BOM for Excel Chinese support
+  const csv = '\uFEFF' + [header, ...rows].join('\n');
+  
+  const filename = start_date && end_date 
+    ? `bookings_${start_date}_to_${end_date}.csv`
+    : `bookings_all_${new Date().toISOString().split('T')[0]}.csv`;
+  
+  res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+  res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+  res.send(csv);
+});
+
 // ─── STATIC FILES & HEALTH ──────────────────────────────
 
 app.get('/', (req, res) => {

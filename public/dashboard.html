@@ -130,8 +130,14 @@
 
     <!-- System Log View -->
     <div id="system-log-view" class="system-log-view hidden">
-    <div class="log-header">
+    <div class="log-header" style="display:flex;justify-content:space-between;align-items:center;">
       <h2>System Log</h2>
+      <div style="display:flex;gap:0.5rem;align-items:center;">
+        <input type="date" id="export-start-date" style="padding:0.3rem;font-size:0.8rem;">
+        <span>-</span>
+        <input type="date" id="export-end-date" style="padding:0.3rem;font-size:0.8rem;">
+        <button id="btn-export-csv" class="btn btn-secondary btn-sm" style="font-size:0.8rem;">📥 CSV</button>
+      </div>
     </div>
     <div class="log-filters">
       <div class="log-filter-group">
