@@ -5,9 +5,9 @@ const DATABASE_URL = process.env.DATABASE_URL || 'postgresql://neondb_owner:npg_
 let db = null;
 
 // ─── TIMEZONE HELPERS ─────────────────────────────────
-// Returns current time in Hong Kong as ISO string
 function nowHK() {
-  return new Date().toLocaleString('sv-SE', { timeZone: 'Asia/Hong_Kong' }).replace('T', ' ');
+  // Use CURRENT_TIMESTAMP at database level for correct timezone
+  return new Date().toISOString(); // Will be handled by NOW() at DB
 }
 
 async function initDb() {
@@ -27,7 +27,7 @@ async function initDb() {
       display_name TEXT NOT NULL,
       role TEXT DEFAULT 'member',
       status TEXT DEFAULT 'pending',
-      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      created_at TIMESTAMP DEFAULT NOW()
     )
   `);
   
@@ -44,7 +44,7 @@ async function initDb() {
       notes TEXT,
       status TEXT DEFAULT 'pending',
       is_private_event INTEGER DEFAULT 0,
-      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      created_at TIMESTAMP DEFAULT NOW()
     )
   `);
   
@@ -56,7 +56,7 @@ async function initDb() {
       actor_id INTEGER,
       actor_name TEXT,
       details TEXT,
-      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      created_at TIMESTAMP DEFAULT NOW()
     )
   `);
   
@@ -66,12 +66,12 @@ async function initDb() {
   
   try {
     await db.query(
-      "INSERT INTO users (email, password, display_name, role, status, created_at) VALUES ($1, $2, $3, $4, $5, $6)",
-      ['admin@bookinglog.com', hashed, 'Administrator', 'admin', 'active', nowHK()]
+      "INSERT INTO users (email, password, display_name, role, status) VALUES ($1, $2, $3, $4, $5) ON CONFLICT (email) DO NOTHING",
+      ['admin@bookinglog.com', hashed, 'Administrator', 'admin', 'active']
     );
-    console.log('Admin created: admin@bookinglog.com / admin123');
+    console.log('Admin initialized: admin@bookinglog.com / admin123');
   } catch (e) {
-    // Admin already exists, ignore
+    console.log('Admin init error:', e.message);
   }
   
   return db;
@@ -88,7 +88,7 @@ function all(sql, params = []) {
 }
 
 function run(sql, params = []) {
-  const result = db.query(sql, params);
+  const result = db.query(sql + ' RETURNING id', params);
   return {
     lastInsertRowid: result.rows[0]?.id || 0,
     changes: result.rowCount || 0
