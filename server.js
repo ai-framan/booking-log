@@ -393,6 +393,19 @@ app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
+// ─── GLOBAL ERROR HANDLER ───────────────────────────────
+app.use((err, req, res, next) => {
+  console.error('Unhandled error:', err);
+  res.status(500).json({
+    error: {
+      code: 'INTERNAL_ERROR',
+      message: process.env.NODE_ENV === 'production'
+        ? 'An internal error occurred'
+        : err.message
+    }
+  });
+});
+
 // ─── STARTUP ────────────────────────────────────────────
 
 async function start() {
