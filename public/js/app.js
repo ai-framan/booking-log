@@ -81,7 +81,7 @@ async function loadHkHolidays() {
 }
 
 function setupEventListeners() {
-  document.getElementById('btn-logout').addEventListener('click', auth.logout);
+  document.getElementById('btn-logout').addEventListener('click', () => { auth.clearSession(); window.location.href = 'index.html'; });
   document.getElementById('prev-month').addEventListener('click', () => changeMonth(-1));
   document.getElementById('next-month').addEventListener('click', () => changeMonth(1));
   document.getElementById('today-btn').addEventListener('click', goToToday);

@@ -53,14 +53,32 @@
       </div>
     </div>
 
-    <!-- Mobile View: Date List -->
+    <!-- Mobile View: Calendar Grid -->
     <div id="mobile-view" class="mobile-view hidden">
-      <div class="mobile-nav">
-        <button id="mobile-prev" class="btn btn-icon">←</button>
-        <input type="date" id="mobile-date">
-        <button id="mobile-next" class="btn btn-icon">→</button>
+      <!-- Mobile calendar header -->
+      <div class="mcal-header">
+        <button id="mcal-prev" class="btn btn-icon mcal-nav-btn">‹</button>
+        <div class="mcal-month-label" id="mcal-month-label">April 2026</div>
+        <button id="mcal-next" class="btn btn-icon mcal-nav-btn">›</button>
       </div>
-      <div id="mobile-bookings"></div>
+
+      <!-- Day-of-week header -->
+      <div class="mcal-dow">
+        <span>Sun</span><span>Mon</span><span>Tue</span><span>Wed</span><span>Thu</span><span>Fri</span><span>Sat</span>
+      </div>
+
+      <!-- Scrollable calendar grid -->
+      <div class="mcal-scroll-container" id="mcal-scroll">
+        <div class="mcal-weeks" id="mcal-weeks">
+          <!-- Weeks injected by JS -->
+        </div>
+      </div>
+
+      <!-- Today shortcut -->
+      <button id="mcal-today" class="btn btn-secondary mcal-today-btn">Today</button>
+
+      <!-- Add booking FAB -->
+      <button id="mcal-add-btn" class="mcal-fab" title="Add Booking">+</button>
     </div>
 
     <!-- Day Modal (appears on tap) -->
