@@ -1,13 +1,9 @@
 [railway]
-  builder = "nixpacks"
   language = "node"
 
 [build]
-  builder = "nixpacks"
-  buildCommand = "cd backend && npm install"
-  startCommand = "cd backend && npm start"
+  command = "npm install"
 
 [deploy]
+  startCommand = "npm start"
   numInstances = 1
-  restartPolicyType = "ON_FAILURE"
-  restartThreshold = 60

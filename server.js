@@ -12,7 +12,7 @@ const MAX_GUESTS_PER_SLOT = 16;
 
 app.use(cors());
 app.use(express.json());
-app.use(express.static(path.join(__dirname, '../frontend')));
+app.use(express.static(path.join(__dirname, 'public')));
 
 // ─── AUTH MIDDLEWARE ────────────────────────────────────
 
@@ -386,7 +386,7 @@ app.get('/api/slots/:date/:slot/capacity', authenticate, (req, res) => {
 // ─── STATIC FILES & HEALTH ──────────────────────────────
 
 app.get('/', (req, res) => {
-  res.sendFile(path.join(__dirname, '../frontend/index.html'));
+  res.sendFile(path.join(__dirname, 'public/index.html'));
 });
 
 app.get('/api/health', (req, res) => {
