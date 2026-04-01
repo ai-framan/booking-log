@@ -695,17 +695,11 @@ async function handleDayModalAdd(slot) {
     return;
   }
 
-  const submitBtn = document.querySelector('.booking-form button[type="submit"]') || document.querySelector('#booking-form button') || document.querySelector('button.submit-booking');
+  const submitBtn = document.querySelector('#booking-form button[type="submit"]');
   const originalText = submitBtn ? submitBtn.textContent : '';
   if (submitBtn) {
     submitBtn.textContent = 'Reserving...';
     submitBtn.disabled = true;
-  }
-
-  // Wake up server with retry
-  for (let i = 0; i < 3; i++) {
-    await fetch('/api/health').catch(() => {});
-    await new Promise(r => setTimeout(r, 600));
   }
 
   try {
@@ -791,12 +785,6 @@ async function handleMobileQuickAdd(slot) {
   if (bookedTimes.includes(time)) {
     showToast(`Time ${time} is already booked! Choose another.`, 'error');
     return;
-  }
-
-  // Wake up server with retry
-  for (let i = 0; i < 3; i++) {
-    await fetch('/api/health').catch(() => {});
-    await new Promise(r => setTimeout(r, 600));
   }
 
   try {
@@ -936,12 +924,6 @@ async function handleBookingSubmit(e) {
     customer_phone: document.getElementById('booking-phone').value,
     notes: document.getElementById('booking-notes').value,
   };
-
-  // Wake up server with retry
-  for (let i = 0; i < 3; i++) {
-    await fetch('/api/health').catch(() => {});
-    await new Promise(r => setTimeout(r, 600));
-  }
 
   try {
     await api.createBooking(booking, auth.getToken());
