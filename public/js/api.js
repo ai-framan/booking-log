@@ -21,6 +21,20 @@ async function request(method, path, body = null, token = null) {
   return json.data;
 }
 
+async function requestWithRetry(method, path, body = null, token = null, retries = 3) {
+  // Wake up server first
+  for (let i = 0; i < retries; i++) {
+    await fetch('/api/health').catch(() => {});
+    await new Promise(r => setTimeout(r, 500));
+    try {
+      const result = await request(method, path, body, token);
+      return result;
+    } catch (e) {
+      if (i === retries - 1) throw e;
+    }
+  }
+}
+
 const api = {
   authRegister: (email, password, displayName) =>
     request('POST', '/auth/register', { email, password, display_name: displayName }),
@@ -36,7 +50,7 @@ const api = {
     request('GET', `/bookings/calendar/${year}/${month}`, null, token),
 
   createBooking: (booking, token) =>
-    request('POST', '/bookings', booking, token),
+    requestWithRetry('POST', '/bookings', booking, token),
 
   updateBooking: (id, data, token) =>
     request('PATCH', `/bookings/${id}`, data, token),
