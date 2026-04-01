@@ -115,6 +115,9 @@ function setupEventListeners() {
     const isMobile = window.innerWidth < 769;
     document.getElementById('desktop-view').classList.toggle('hidden', isMobile);
     document.getElementById('mobile-view').classList.toggle('hidden', !isMobile);
+    if (isMobile) {
+      setTimeout(() => MobileCalendar.init(), 50);
+    }
   };
   window.addEventListener('resize', checkMobile);
   checkMobile();
@@ -136,6 +139,10 @@ async function loadBookings(retryCount = 0) {
     allBookings = await api.getCalendar(currentYear, currentMonth, token);
     renderCalendar();
     renderMobileBookings();
+    // Mobile calendar refresh
+    if (window.innerWidth < 769) {
+      MobileCalendar.refreshBookings(allBookings);
+    }
   } catch (err) {
     if (retryCount < 3) {
       await new Promise(r => setTimeout(r, 500 * (retryCount + 1)));
@@ -1387,3 +1394,352 @@ function initSettingsPanel() {
   bindColorPicker('set-color-dinner', 'set-color-dinner-txt', 'colorDinner');
   bindColorPicker('set-color-dinner-conf', 'set-color-dinner-conf-txt', 'colorDinnerConf');
 }
+
+// ─── MOBILE CALENDAR MODULE ────────────────────────────────────────────────────
+const MobileCalendar = (() => {
+  let _scrollEl = null, _weeksEl = null, _labelEl = null;
+  let _bookingsByDate = {};
+  let _loadedMonths = new Set();
+  let _currentVisibleMonth = '';
+  let _scrollTimer = null;
+  const _weekHeight = 72;
+  let _todayStr = formatDate(new Date());
+
+  const MONTH_NAMES = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+
+  function init() {
+    _scrollEl = document.getElementById('mcal-scroll');
+    _weeksEl  = document.getElementById('mcal-weeks');
+    _labelEl  = document.getElementById('mcal-month-label');
+    if (!_scrollEl || !_weeksEl) return;
+    const now = new Date();
+    const y = now.getFullYear(), m = now.getMonth() + 1;
+    for (let d = -1; d <= 1; d++) {
+      const { year, month } = offsetMonth(y, m, d);
+      _loadedMonths.add(`${year}-${month}`);
+    }
+    buildAllWeeks();
+    scrollToDate(_todayStr, false);
+    bindScroll();
+    bindNav();
+    bindFAB();
+    bindToday();
+    updateLabel(y, m);
+  }
+
+  function buildAllWeeks() {
+    const sorted = [..._loadedMonths].sort();
+    _weeksEl.innerHTML = '';
+    for (const key of sorted) {
+      const [yStr, mStr] = key.split('-');
+      appendMonthWeeks(parseInt(yStr), parseInt(mStr));
+    }
+  }
+
+  function appendMonthWeeks(year, month) {
+    if (document.getElementById(`mcal-month-${year}-${month}`)) return;
+    const firstDay = new Date(year, month - 1, 1);
+    const lastDay  = new Date(year, month, 0);
+    const startDow = firstDay.getDay();
+    const daysInMonth = lastDay.getDate();
+
+    const sep = document.createElement('div');
+    sep.className = 'mcal-month-sep';
+    sep.id = `mcal-month-${year}-${month}`;
+    sep.textContent = `${MONTH_NAMES[month - 1]} ${year}`;
+    sep.style.cssText = 'grid-column:1/-1;padding:6px 12px;font-size:0.7rem;font-weight:700;color:var(--color-text-secondary);text-transform:uppercase;letter-spacing:0.06em;background:var(--color-bg);border-bottom:1px solid var(--color-border);position:sticky;top:0;z-index:5;';
+    _weeksEl.appendChild(sep);
+
+    for (let i = 0; i < startDow; i++) _weeksEl.appendChild(makeEmptyCell());
+    for (let d = 1; d <= daysInMonth; d++) {
+      const dateStr = `${year}-${String(month).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+      _weeksEl.appendChild(makeDayCell(dateStr, d, year, month));
+    }
+    const totalCells = startDow + daysInMonth;
+    const remainder = totalCells % 7;
+    if (remainder !== 0) {
+      for (let i = 0; i < 7 - remainder; i++) _weeksEl.appendChild(makeEmptyCell());
+    }
+  }
+
+  function makeEmptyCell() {
+    const el = document.createElement('div');
+    el.className = 'mcal-day mcal-day-empty';
+    return el;
+  }
+
+  function makeDayCell(dateStr, day, year, month) {
+    const el = document.createElement('div');
+    const dow = new Date(year, month - 1, day).getDay();
+    const isPast = dateStr < _todayStr;
+    const isToday = dateStr === _todayStr;
+    const holiday = findHoliday(dateStr);
+
+    let cls = 'mcal-day';
+    if (isPast) cls += ' mcal-day-past';
+    if (isToday) cls += ' mcal-day-today';
+    if (dow === 0) cls += ' mcal-day-sun';
+    if (dow === 6) cls += ' mcal-day-sat';
+    if (holiday) cls += ' mcal-day-holiday';
+    el.className = cls;
+    el.dataset.date = dateStr;
+
+    const holidayHtml = holiday ? `<span class="mcal-day-holiday-badge">${escapeHtml(holiday.name_zh || holiday.name)}</span>` : '';
+    const numHtml = isToday ? `<span class="mcal-day-num mcal-day-today">${day}</span>` : `<span class="mcal-day-num">${day}</span>`;
+    el.innerHTML = numHtml + holidayHtml + renderDaySlotIndicators(dateStr);
+
+    if (!isPast) el.addEventListener('click', () => onDayTap(dateStr));
+    return el;
+  }
+
+  function renderDaySlotIndicators(dateStr) {
+    const bookings = _bookingsByDate[dateStr] || [];
+    const lunch = bookings.filter(b => b.slot === 'lunch' && b.status !== 'cancelled');
+    const dinner = bookings.filter(b => b.slot === 'dinner' && b.status !== 'cancelled');
+    const lunchPrivate = lunch.some(b => b.is_private_event);
+    const dinnerPrivate = dinner.some(b => b.is_private_event);
+    const lunchCount = lunch.filter(b => !b.is_private_event).length;
+    const dinnerCount = dinner.filter(b => !b.is_private_event).length;
+    const lunchGuests = lunch.reduce((s, b) => s + (b.party_size || 0), 0);
+    const dinnerGuests = dinner.reduce((s, b) => s + (b.party_size || 0), 0);
+
+    const makeSlot = (type, count, guests, isPrivate) => {
+      if (count === 0 && !isPrivate) return `<div class="mcal-slot ${type} mcal-slot-empty"></div>`;
+      const icon = isPrivate ? '🔒' : (type === 'lunch' ? '🍽' : '🌙');
+      const text = isPrivate ? 'Private' : `${count}·${guests}p`;
+      return `<div class="mcal-slot ${type}${isPrivate ? ' has-private' : ' has-booking'}" title="${type}: ${text}"><span>${icon}</span><span>${text}</span></div>`;
+    };
+
+    return `<div class="mcal-slots">${makeSlot('lunch', lunchCount, lunchGuests, lunchPrivate)}${makeSlot('dinner', dinnerCount, dinnerGuests, dinnerPrivate)}</div>`;
+  }
+
+  function findHoliday(dateStr) {
+    for (const holidays of Object.values(hkHolidays || {})) {
+      const found = holidays.find(h => h.date === dateStr);
+      if (found) return found;
+    }
+    return null;
+  }
+
+  function onDayTap(dateStr) {
+    document.querySelectorAll('.mcal-day.mcal-day-selected').forEach(el => el.classList.remove('mcal-day-selected'));
+    document.querySelector(`.mcal-day[data-date="${dateStr}"]`)?.classList.add('mcal-day-selected');
+    openDayModal(dateStr);
+  }
+
+  function bindScroll() {
+    if (!_scrollEl) return;
+    _scrollEl.addEventListener('scroll', () => {
+      clearTimeout(_scrollTimer);
+      const scrollTop = _scrollEl.scrollTop;
+      const scrollHeight = _scrollEl.scrollHeight;
+      const clientHeight = _scrollEl.clientHeight;
+      const threshold = _weekHeight * 2;
+      if (scrollTop < threshold) loadMoreWeeks('past');
+      else if (scrollTop + clientHeight > scrollHeight - threshold) loadMoreWeeks('future');
+      _scrollTimer = setTimeout(() => {
+        const visible = guessVisibleMonth();
+        if (visible && visible !== _currentVisibleMonth) {
+          _currentVisibleMonth = visible;
+          const [yStr, mStr] = visible.split('-');
+          updateLabel(parseInt(yStr), parseInt(mStr));
+        }
+      }, 250);
+    }, { passive: true });
+  }
+
+  function guessVisibleMonth() {
+    const seps = document.querySelectorAll('.mcal-month-sep');
+    let closest = null, minDist = Infinity;
+    seps.forEach(sep => {
+      const dist = Math.abs(sep.getBoundingClientRect().top - _scrollEl.getBoundingClientRect().top);
+      if (dist < minDist) { minDist = dist; closest = sep.id.replace('mcal-month-', ''); }
+    });
+    return closest || _currentVisibleMonth;
+  }
+
+  let _loadingPast = false, _loadingFuture = false;
+
+  function loadMoreWeeks(direction) {
+    const sorted = [..._loadedMonths].sort();
+    if (direction === 'past' && !_loadingPast) {
+      _loadingPast = true;
+      const [yStr, mStr] = sorted[0].split('-');
+      const { year, month } = offsetMonth(parseInt(yStr), parseInt(mStr), -1);
+      const key = `${year}-${month}`;
+      if (!_loadedMonths.has(key)) { _loadedMonths.add(key); prependMonthWeeks(year, month); }
+      _loadingPast = false;
+    } else if (direction === 'future' && !_loadingFuture) {
+      _loadingFuture = true;
+      const last = sorted[sorted.length - 1];
+      const [yStr, mStr] = last.split('-');
+      const { year, month } = offsetMonth(parseInt(yStr), parseInt(mStr), 1);
+      const key = `${year}-${month}`;
+      if (!_loadedMonths.has(key)) { _loadedMonths.add(key); appendMonthWeeks(year, month); }
+      _loadingFuture = false;
+    }
+  }
+
+  function prependMonthWeeks(year, month) {
+    const firstDay = new Date(year, month - 1, 1);
+    const lastDay = new Date(year, month, 0);
+    const startDow = firstDay.getDay();
+    const daysInMonth = lastDay.getDate();
+    const frag = document.createDocumentFragment();
+
+    const sep = document.createElement('div');
+    sep.className = 'mcal-month-sep';
+    sep.id = `mcal-month-${year}-${month}`;
+    sep.textContent = `${MONTH_NAMES[month - 1]} ${year}`;
+    sep.style.cssText = 'padding:6px 12px;font-size:0.7rem;font-weight:700;color:var(--color-text-secondary);text-transform:uppercase;letter-spacing:0.06em;background:var(--color-bg);border-bottom:1px solid var(--color-border);position:sticky;top:0;z-index:5;';
+
+    for (let i = 0; i < startDow; i++) frag.appendChild(makeEmptyCell());
+    for (let d = 1; d <= daysInMonth; d++) {
+      const dateStr = `${year}-${String(month).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+      frag.appendChild(makeDayCell(dateStr, d, year, month));
+    }
+    const totalCells = startDow + daysInMonth;
+    const remainder = totalCells % 7;
+    if (remainder !== 0) { for (let i = 0; i < 7 - remainder; i++) frag.appendChild(makeEmptyCell()); }
+
+    const firstSep = _weeksEl.querySelector('.mcal-month-sep');
+    if (firstSep) { _weeksEl.insertBefore(sep, firstSep); firstSep.parentNode.insertBefore(frag, firstSep); }
+    else { _weeksEl.appendChild(sep); _weeksEl.appendChild(frag); }
+  }
+
+  function updateLabel(year, month) {
+    if (_labelEl) _labelEl.textContent = `${MONTH_NAMES[month - 1]} ${year}`;
+  }
+
+  function bindNav() {
+    document.getElementById('mcal-prev')?.addEventListener('click', () => {
+      const sorted = [..._loadedMonths].sort();
+      const [yStr, mStr] = sorted[0].split('-');
+      const { year, month } = offsetMonth(parseInt(yStr), parseInt(mStr), -1);
+      scrollToMonth(year, month, 'past');
+    });
+    document.getElementById('mcal-next')?.addEventListener('click', () => {
+      const sorted = [..._loadedMonths].sort();
+      const last = sorted[sorted.length - 1];
+      const [yStr, mStr] = last.split('-');
+      const { year, month } = offsetMonth(parseInt(yStr), parseInt(mStr), 1);
+      scrollToMonth(year, month, 'future');
+    });
+  }
+
+  function scrollToMonth(year, month, direction) {
+    const key = `${year}-${month}`;
+    if (!_loadedMonths.has(key)) { _loadedMonths.add(key); if (direction === 'past') prependMonthWeeks(year, month); else appendMonthWeeks(year, month); }
+    const sep = document.getElementById(`mcal-month-${year}-${month}`);
+    if (sep && _scrollEl) sep.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    updateLabel(year, month);
+    _currentVisibleMonth = key;
+  }
+
+  function scrollToDate(dateStr, animate = true) {
+    const cell = document.querySelector(`.mcal-day[data-date="${dateStr}"]`);
+    if (!cell || !_scrollEl) return;
+    cell.scrollIntoView({ behavior: animate ? 'smooth' : 'auto', block: 'center' });
+    const d = new Date(dateStr + 'T00:00:00');
+    updateLabel(d.getFullYear(), d.getMonth() + 1);
+    _currentVisibleMonth = `${d.getFullYear()}-${d.getMonth() + 1}`;
+  }
+
+  let _quickSlot = 'lunch';
+
+  function bindFAB() {
+    document.getElementById('mcal-add-btn')?.addEventListener('click', openQuickAdd);
+  }
+
+  function openQuickAdd() {
+    const d = new Date(_todayStr + 'T00:00:00');
+    const weekdays = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+    const dateLabel = `${d.getDate()} ${MONTH_NAMES[d.getMonth()]} ${d.getFullYear()} (${weekdays[d.getDay()]})`;
+    document.getElementById('mcal-quick-add-panel')?.remove();
+
+    const panel = document.createElement('div');
+    panel.className = 'mcal-quick-add';
+    panel.id = 'mcal-quick-add-panel';
+    panel.innerHTML = `<div class="mcal-quick-add-header"><h4>📅 New Booking — ${dateLabel}</h4><button class="mcal-quick-add-close" onclick="MobileCalendar.closeQuickAdd()">×</button></div>
+      <div class="mcal-date-badge">${dateLabel}</div>
+      <div class="mcal-q-slot-toggle">
+        <button class="mcal-q-slot-btn active" id="mcal-q-slot-lunch" onclick="MobileCalendar.setQuickSlot('lunch')">🍽 Lunch</button>
+        <button class="mcal-q-slot-btn" id="mcal-q-slot-dinner" onclick="MobileCalendar.setQuickSlot('dinner')">🌙 Dinner</button>
+      </div>
+      <div class="mcal-quick-add-row"><input type="text" id="mcal-q-name" class="mcal-q-input" placeholder="Customer Name *" autocomplete="off"></div>
+      <div class="mcal-quick-add-row"><select id="mcal-q-time" class="mcal-q-select"></select><input type="number" id="mcal-q-pax" class="mcal-q-pax" min="1" max="20" value="2"><input type="text" id="mcal-q-remark" class="mcal-q-input" placeholder="Remark (optional)"></div>
+      <button class="mcal-q-submit" onclick="MobileCalendar.submitQuickAdd()">Add Booking</button>`;
+    document.body.appendChild(panel);
+    populateTimeSelect('lunch');
+    setTimeout(() => document.getElementById('mcal-q-name')?.focus(), 200);
+  }
+
+  function populateTimeSelect(slot) {
+    const sel = document.getElementById('mcal-q-time');
+    if (!sel) return;
+    const times = slot === 'lunch' ? ['11:30','12:00','12:30','13:00','13:30','14:00','14:30'] : ['17:30','18:00','18:30','19:00','19:30','20:00','20:30','21:00'];
+    sel.innerHTML = times.map(t => `<option value="${t}">${t}</option>`).join('');
+  }
+
+  function setQuickSlot(slot) {
+    _quickSlot = slot;
+    document.querySelectorAll('.mcal-q-slot-btn').forEach(btn => btn.classList.toggle('active', btn.id === `mcal-q-slot-${slot}`));
+    populateTimeSelect(slot);
+  }
+
+  async function submitQuickAdd() {
+    const name = document.getElementById('mcal-q-name')?.value.trim();
+    const time = document.getElementById('mcal-q-time')?.value;
+    const pax = parseInt(document.getElementById('mcal-q-pax')?.value) || 2;
+    const notes = document.getElementById('mcal-q-remark')?.value.trim();
+    if (!name) { showToast('Please enter customer name', 'error'); return; }
+    try {
+      await api.createBooking({ date: _todayStr, slot: _quickSlot, time, party_size: pax, customer_name: name, notes }, auth.getToken());
+      showToast('Booking added!');
+      closeQuickAdd();
+      await loadBookings();
+    } catch (err) { showToast(err.message, 'error'); }
+  }
+
+  function closeQuickAdd() { document.getElementById('mcal-quick-add-panel')?.remove(); }
+
+  function bindToday() { document.getElementById('mcal-today')?.addEventListener('click', () => scrollToDate(_todayStr)); }
+
+  function refreshBookings(allBookingsData) {
+    _bookingsByDate = {};
+    for (const b of allBookingsData) {
+      if (b.status === 'cancelled') continue;
+      if (!_bookingsByDate[b.date]) _bookingsByDate[b.date] = [];
+      _bookingsByDate[b.date].push(b);
+    }
+    document.querySelectorAll('.mcal-day[data-date]').forEach(cell => {
+      const dateStr = cell.dataset.date;
+      if (!dateStr) return;
+      const d = new Date(dateStr + 'T00:00:00');
+      const day = d.getDate(), month = d.getMonth() + 1, year = d.getFullYear();
+      const dow = d.getDay();
+      const holiday = findHoliday(dateStr);
+      const isPast = dateStr < _todayStr, isToday = dateStr === _todayStr;
+      let cls = 'mcal-day';
+      if (isPast) cls += ' mcal-day-past';
+      if (isToday) cls += ' mcal-day-today';
+      if (dow === 0) cls += ' mcal-day-sun';
+      if (dow === 6) cls += ' mcal-day-sat';
+      if (holiday) cls += ' mcal-day-holiday';
+      cell.className = cls;
+      const holidayHtml = holiday ? `<span class="mcal-day-holiday-badge">${escapeHtml(holiday.name_zh || holiday.name)}</span>` : '';
+      const numHtml = isToday ? `<span class="mcal-day-num mcal-day-today">${day}</span>` : `<span class="mcal-day-num">${day}</span>`;
+      cell.innerHTML = numHtml + holidayHtml + renderDaySlotIndicators(dateStr);
+      if (!isPast) cell.addEventListener('click', () => onDayTap(dateStr));
+    });
+  }
+
+  function offsetMonth(year, month, delta) {
+    let m = month + delta, y = year;
+    while (m > 12) { m -= 12; y++; }
+    while (m < 1) { m += 12; y--; }
+    return { year: y, month: m };
+  }
+
+  return { init, refreshBookings, setQuickSlot, submitQuickAdd, closeQuickAdd, scrollToDate };
+})();
