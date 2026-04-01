@@ -1055,12 +1055,12 @@ body {
 
 /* ─── System Log View ───────────────────────────────────── */
 .system-log-view {
+  flex: 1;
   padding: 0.75rem 1rem;
   max-width: 1100px;
   margin: 0 auto;
   width: 100%;
-  flex-shrink: 0;
-  align-self: flex-start;
+  overflow-y: auto;
 }
 
 .log-header {
@@ -1107,6 +1107,7 @@ body {
   box-shadow: var(--shadow);
   overflow: hidden;
   padding: 0;
+  min-height: 400px;
 }
 
 .log-table {
@@ -1288,12 +1289,12 @@ body {
 
 /* ─── Members View ─────────────────────────────────────── */
 .members-view {
+  flex: 1;
   padding: 0.75rem 1rem;
   max-width: 800px;
   margin: 0 auto;
-  flex-shrink: 0;
-  align-self: flex-start;
   width: 100%;
+  overflow-y: auto;
 }
 
 .members-view .log-header h2 {

@@ -7,3 +7,7 @@
 [deploy]
   startCommand = "npm start"
   numInstances = 1
+
+[[railway.environment]]
+  name = "TZ"
+  value = "Asia/Hong_Kong"
