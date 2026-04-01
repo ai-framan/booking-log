@@ -447,7 +447,15 @@ body {
 }
 
 @media (min-width: 769px) {
-  .mobile-view { display: none; }
+  .mobile-view { display: none !important; }
+}
+
+@media (max-width: 768px) {
+  .mobile-view {
+    display: flex !important;
+    flex-direction: column;
+    min-height: 500px;
+  }
 }
 
 .mobile-nav {

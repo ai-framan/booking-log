@@ -1404,16 +1404,23 @@ const MobileCalendar = (() => {
   let _loadedMonths = new Set();
   let _currentVisibleMonth = '';
   let _scrollTimer = null;
+  let _initialized = false;
   const _weekHeight = 72;
   let _todayStr = formatDate(new Date());
 
   const MONTH_NAMES = ['January','February','March','April','May','June','July','August','September','October','November','December'];
 
   function init() {
+    if (_initialized) return;
     _scrollEl = document.getElementById('mcal-scroll');
     _weeksEl  = document.getElementById('mcal-weeks');
     _labelEl  = document.getElementById('mcal-month-label');
-    if (!_scrollEl || !_weeksEl) return;
+    if (!_scrollEl || !_weeksEl || !_labelEl) {
+      console.error('[MobileCalendar] DOM elements missing, retrying in 500ms');
+      setTimeout(init, 500);
+      return;
+    }
+    _initialized = true;
     const now = new Date();
     const y = now.getFullYear(), m = now.getMonth() + 1;
     for (let d = -1; d <= 1; d++) {
