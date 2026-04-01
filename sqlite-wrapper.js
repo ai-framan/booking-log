@@ -6,8 +6,7 @@ let db = null;
 
 // ─── TIMEZONE HELPERS ─────────────────────────────────
 function nowHK() {
-  // Use CURRENT_TIMESTAMP at database level for correct timezone
-  return new Date().toISOString(); // Will be handled by NOW() at DB
+  return new Date().toLocaleString('sv-SE', { timeZone: 'Asia/Hong_Kong' }).replace('T', ' ');
 }
 
 async function initDb() {
@@ -77,26 +76,31 @@ async function initDb() {
   return db;
 }
 
-function get(sql, params = []) {
-  const result = db.query(sql, params);
+// ─── ASYNC QUERY HELPERS ───────────────────────────────
+async function get(sql, params = []) {
+  const result = await db.query(sql, params);
   return result.rows[0] || null;
 }
 
-function all(sql, params = []) {
-  const result = db.query(sql, params);
+async function all(sql, params = []) {
+  const result = await db.query(sql, params);
   return result.rows || [];
 }
 
-function run(sql, params = []) {
-  const result = db.query(sql + ' RETURNING id', params);
+async function run(sql, params = []) {
+  const hasReturning = sql.toUpperCase().includes('RETURNING');
+  if (!hasReturning && (sql.toUpperCase().includes('INSERT') || sql.toUpperCase().includes('UPDATE') || sql.toUpperCase().includes('DELETE'))) {
+    sql = sql + ' RETURNING id';
+  }
+  const result = await db.query(sql, params);
   return {
     lastInsertRowid: result.rows[0]?.id || 0,
     changes: result.rowCount || 0
   };
 }
 
-function exec(sql) {
-  db.query(sql);
+async function exec(sql) {
+  await db.query(sql);
 }
 
 module.exports = { initDb, get, all, run, exec, nowHK };

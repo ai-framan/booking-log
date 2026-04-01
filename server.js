@@ -39,8 +39,8 @@ function adminOnly(req, res, next) {
   next();
 }
 
-function logAction(action, targetId, actorId, actorName, details) {
-  db.run(
+function await logAction(action, targetId, actorId, actorName, details) {
+  await db.run(
     'INSERT INTO system_logs (action, target_id, actor_id, actor_name, details, created_at) VALUES ($1, $2, $3, $4, $5, $6)',
     [action, targetId, actorId, actorName, details ? JSON.stringify(details) : null, nowHK()]
   );
@@ -53,14 +53,14 @@ app.post('/api/auth/register', (req, res) => {
   if (!email || !password || !display_name) {
     return res.status(400).json({ error: { code: 'VALIDATION_ERROR', message: 'All fields required' } });
   }
-  const existing = db.get('SELECT id FROM users WHERE email = $1', [email]);
+  const existing = await db.get('SELECT id FROM users WHERE email = $1', [email]);
   if (existing) {
     return res.status(409).json({ error: { code: 'EMAIL_EXISTS', message: 'Email already registered' } });
   }
   const hashed = bcrypt.hashSync(password, 10);
-  const result = db.run('INSERT INTO users (email, password, display_name, status, created_at) VALUES ($1, $2, $3, $4, $5)', [email, hashed, display_name, 'pending', nowHK()]);
+  const result = await await db.run('INSERT INTO users (email, password, display_name, status, created_at) VALUES ($1, $2, $3, $4, $5)', [email, hashed, display_name, 'pending', nowHK()]);
   const user = { id: result.lastInsertRowid, email, display_name, role: 'member', status: 'pending' };
-  logAction('user_registered', String(user.id), user.id, display_name, { email, display_name });
+  await logAction('user_registered', String(user.id), user.id, display_name, { email, display_name });
   res.json({ data: { message: 'Registration submitted. Awaiting admin approval.', user } });
 });
 
@@ -69,7 +69,7 @@ app.post('/api/auth/login', (req, res) => {
   if (!email || !password) {
     return res.status(400).json({ error: { code: 'VALIDATION_ERROR', message: 'Email and password required' } });
   }
-  const user = db.get('SELECT * FROM users WHERE email = $1', [email]);
+  const user = await db.get('SELECT * FROM users WHERE email = $1', [email]);
   if (!user || !bcrypt.compareSync(password, user.password)) {
     return res.status(401).json({ error: { code: 'INVALID_CREDENTIALS', message: 'Invalid credentials' } });
   }
@@ -81,12 +81,12 @@ app.post('/api/auth/login', (req, res) => {
   }
   const payload = { id: user.id, email: user.email, role: user.role, display_name: user.display_name };
   const token = jwt.sign(payload, JWT_SECRET, { expiresIn: '7d' });
-  logAction('user_login', null, user.id, user.display_name, { email: user.email });
+  await logAction('user_login', null, user.id, user.display_name, { email: user.email });
   res.json({ data: { user: { id: user.id, email: user.email, display_name: user.display_name, role: user.role }, token } });
 });
 
 app.get('/api/auth/me', authenticate, (req, res) => {
-  const user = db.get('SELECT id, email, display_name, role FROM users WHERE id = $1', [req.user.id]);
+  const user = await db.get('SELECT id, email, display_name, role FROM users WHERE id = $1', [req.user.id]);
   if (!user) return res.status(404).json({ error: { code: 'NOT_FOUND', message: 'User not found' } });
   res.json({ data: user });
 });
@@ -166,7 +166,7 @@ app.post('/api/bookings', authenticate, (req, res) => {
       return res.status(409).json({ error: { code: 'EXCEEDS_CAPACITY', message: `Only ${MAX_GUESTS_PER_SLOT - guests.total} seats remaining in this session` } });
     }
 
-    const result = db.run(`
+    const result = await await db.run(`
       INSERT INTO bookings (user_id, date, slot, time, party_size, customer_name, customer_phone, notes, status, is_private_event, created_at)
       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'pending', $9, $10)
     `, [
@@ -179,7 +179,7 @@ app.post('/api/bookings', authenticate, (req, res) => {
 
     // Log action in background (non-blocking, non-fatal)
     setImmediate(() => {
-      logAction(isPrivate ? 'slot_private_locked' : 'booking_created', String(result.lastInsertRowid), req.user.id, req.user.display_name, {
+      await logAction(isPrivate ? 'slot_private_locked' : 'booking_created', String(result.lastInsertRowid), req.user.id, req.user.display_name, {
         customer_name, slot, date, is_private_event: isPrivate
       });
     });
@@ -199,14 +199,14 @@ app.patch('/api/bookings/:id/confirm', authenticate, (req, res) => {
   }
 
   const oldStatus = booking.status;
-  db.run('UPDATE bookings SET status = $1 WHERE id = $1', ['confirmed', req.params.id]);
+  await db.run('UPDATE bookings SET status = $1 WHERE id = $1', ['confirmed', req.params.id]);
   const updated = db.get(`
     SELECT b.*, u.display_name as user_display_name
     FROM bookings b JOIN users u ON b.user_id = u.id WHERE b.id = $1`,
     [req.params.id]
   );
 
-  logAction('booking_confirmed', String(updated.id), req.user.id, req.user.display_name, {
+  await logAction('booking_confirmed', String(updated.id), req.user.id, req.user.display_name, {
     customer_name: updated.customer_name, slot: updated.slot, date: updated.date, time: updated.time,
     previous_status: oldStatus
   });
@@ -243,7 +243,7 @@ app.patch('/api/bookings/:id', authenticate, (req, res) => {
   if (notes !== undefined) changes.notes = { from: booking.notes || '', to: notes };
   if (status !== undefined) changes.status = { from: booking.status, to: status };
 
-  db.run(`
+  await db.run(`
     UPDATE bookings SET
       customer_name = COALESCE($1, customer_name),
       customer_phone = COALESCE($2, customer_phone),
@@ -268,7 +268,7 @@ app.patch('/api/bookings/:id', authenticate, (req, res) => {
     [req.params.id]
   );
 
-  logAction('booking_modified', String(updated.id), req.user.id, req.user.display_name, {
+  await logAction('booking_modified', String(updated.id), req.user.id, req.user.display_name, {
     customer_name: updated.customer_name, date: updated.date, slot: updated.slot, changes
   });
 
@@ -283,8 +283,8 @@ app.delete('/api/bookings/:id', authenticate, (req, res) => {
   if (booking.user_id !== req.user.id && req.user.role !== 'admin') {
     return res.status(403).json({ error: { code: 'FORBIDDEN', message: 'Cannot cancel this booking' } });
   }
-  db.run('UPDATE bookings SET status = $1 WHERE id = $1', ['cancelled', req.params.id]);
-  logAction('booking_cancelled', String(booking.id), req.user.id, req.user.display_name, {
+  await db.run('UPDATE bookings SET status = $1 WHERE id = $1', ['cancelled', req.params.id]);
+  await logAction('booking_cancelled', String(booking.id), req.user.id, req.user.display_name, {
     customer_name: booking.customer_name, date: booking.date, slot: booking.slot,
     time: booking.time, party_size: booking.party_size
   });
@@ -294,32 +294,32 @@ app.delete('/api/bookings/:id', authenticate, (req, res) => {
 // ─── USER MANAGEMENT ────────────────────────────────────
 
 app.get('/api/users/pending', authenticate, adminOnly, (req, res) => {
-  const users = db.all("SELECT id, email, display_name, role, status, created_at FROM users WHERE status = 'pending' ORDER BY created_at ASC");
+  const users = await db.all("SELECT id, email, display_name, role, status, created_at FROM users WHERE status = 'pending' ORDER BY created_at ASC");
   const count = users.length;
   res.json({ data: { users, count } });
 });
 
 app.patch('/api/users/:id/approve', authenticate, adminOnly, (req, res) => {
-  const user = db.get('SELECT * FROM users WHERE id = $1', [req.params.id]);
+  const user = await db.get('SELECT * FROM users WHERE id = $1', [req.params.id]);
   if (!user) return res.status(404).json({ error: { code: 'NOT_FOUND', message: 'User not found' } });
   if (user.status !== 'pending') {
     return res.status(400).json({ error: { code: 'INVALID_STATUS', message: 'User is not pending' } });
   }
-  db.run("UPDATE users SET status = 'active' WHERE id = $1", [req.params.id]);
-  logAction('user_approved', String(user.id), req.user.id, req.user.display_name, {
+  await db.run("UPDATE users SET status = 'active' WHERE id = $1", [req.params.id]);
+  await logAction('user_approved', String(user.id), req.user.id, req.user.display_name, {
     email: user.email, display_name: user.display_name
   });
   res.json({ data: { message: 'User approved', user: { ...user, status: 'active' } } });
 });
 
 app.patch('/api/users/:id/reject', authenticate, adminOnly, (req, res) => {
-  const user = db.get('SELECT * FROM users WHERE id = $1', [req.params.id]);
+  const user = await db.get('SELECT * FROM users WHERE id = $1', [req.params.id]);
   if (!user) return res.status(404).json({ error: { code: 'NOT_FOUND', message: 'User not found' } });
   if (user.status !== 'pending') {
     return res.status(400).json({ error: { code: 'INVALID_STATUS', message: 'User is not pending' } });
   }
-  db.run("UPDATE users SET status = 'rejected' WHERE id = $1", [req.params.id]);
-  logAction('user_rejected', String(user.id), req.user.id, req.user.display_name, {
+  await db.run("UPDATE users SET status = 'rejected' WHERE id = $1", [req.params.id]);
+  await logAction('user_rejected', String(user.id), req.user.id, req.user.display_name, {
     email: user.email, display_name: user.display_name
   });
   res.json({ data: { message: 'User rejected' } });
@@ -328,7 +328,7 @@ app.patch('/api/users/:id/reject', authenticate, adminOnly, (req, res) => {
 // ─── USERS ───────────────────────────────────────────────
 
 app.get('/api/users', authenticate, adminOnly, (req, res) => {
-  const users = db.all('SELECT id, email, display_name, role, status, created_at FROM users ORDER BY created_at DESC');
+  const users = await db.all('SELECT id, email, display_name, role, status, created_at FROM users ORDER BY created_at DESC');
   res.json({ data: users });
 });
 
