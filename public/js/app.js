@@ -695,18 +695,27 @@ async function handleDayModalAdd(slot) {
     return;
   }
 
+  const submitBtn = document.querySelector('.booking-form button[type="submit"]') || document.querySelector('#booking-form button') || document.querySelector('button.submit-booking');
+  const originalText = submitBtn ? submitBtn.textContent : '';
+  if (submitBtn) {
+    submitBtn.textContent = 'Reserving...';
+    submitBtn.disabled = true;
+  }
+
   try {
     await api.createBooking({
       date: selectedDate, slot, time, party_size, customer_name, notes, is_private_event: isPrivate
     }, auth.getToken());
-    showToast(isPrivate ? 'Private Event set! Slot locked.' : 'Booking added! (Pending confirmation)');
-    // Wake up server then load
-    await fetch('/api/health');
-    await new Promise(r => setTimeout(r, 800));
+    showToast(isPrivate ? 'Private Event set! Slot locked.' : '✅ Table Reserved!', 'success');
     await loadBookings();
     openDayModal(selectedDate);
   } catch (err) {
     showToast(err.message, 'error');
+  } finally {
+    if (submitBtn) {
+      submitBtn.textContent = originalText;
+      submitBtn.disabled = false;
+    }
   }
 }
 
@@ -789,9 +798,7 @@ async function handleMobileQuickAdd(slot) {
     }, token);
     nameInput.value = '';
     paxInput.value = '2';
-    showToast('Booking added!');
-    await fetch('/api/health');
-    await new Promise(r => setTimeout(r, 800));
+    showToast('✅ Table Reserved!', 'success');
     await loadBookings();
     renderMobileBookings();
   } catch (err) {
@@ -921,9 +928,7 @@ async function handleBookingSubmit(e) {
   try {
     await api.createBooking(booking, auth.getToken());
     closeModal();
-    showToast('Booking created successfully!');
-    await fetch('/api/health');
-    await new Promise(r => setTimeout(r, 800));
+    showToast('✅ Table Reserved!', 'success');
     await loadBookings();
     openMobilePanel(selectedDate);
   } catch (err) {
@@ -972,7 +977,7 @@ function escapeHtml(str) {
 function showToast(msg, type = 'success') {
   const toast = document.getElementById('toast');
   toast.textContent = msg;
-  toast.style.background = type === 'error' ? '#DC2626' : '#1C1917';
+  toast.style.background = type === 'error' ? '#DC2626' : type === 'success' ? '#059669' : '#1C1917';
   toast.classList.remove('hidden');
   setTimeout(() => toast.classList.add('hidden'), 3000);
 }
