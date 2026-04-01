@@ -41,7 +41,7 @@ function adminOnly(req, res, next) {
 
 function logAction(action, targetId, actorId, actorName, details) {
   db.run(
-    'INSERT INTO system_logs (action, target_id, actor_id, actor_name, details, created_at) VALUES (?, ?, ?, ?, ?, ?)',
+    'INSERT INTO system_logs (action, target_id, actor_id, actor_name, details, created_at) VALUES ($1, $2, $3, $4, $5, $6)',
     [action, targetId, actorId, actorName, details ? JSON.stringify(details) : null, nowHK()]
   );
 }
@@ -53,12 +53,12 @@ app.post('/api/auth/register', (req, res) => {
   if (!email || !password || !display_name) {
     return res.status(400).json({ error: { code: 'VALIDATION_ERROR', message: 'All fields required' } });
   }
-  const existing = db.get('SELECT id FROM users WHERE email = ?', [email]);
+  const existing = db.get('SELECT id FROM users WHERE email = $1', [email]);
   if (existing) {
     return res.status(409).json({ error: { code: 'EMAIL_EXISTS', message: 'Email already registered' } });
   }
   const hashed = bcrypt.hashSync(password, 10);
-  const result = db.run('INSERT INTO users (email, password, display_name, status, created_at) VALUES (?, ?, ?, ?, ?)', [email, hashed, display_name, 'pending', nowHK()]);
+  const result = db.run('INSERT INTO users (email, password, display_name, status, created_at) VALUES ($1, $2, $3, $4, $5)', [email, hashed, display_name, 'pending', nowHK()]);
   const user = { id: result.lastInsertRowid, email, display_name, role: 'member', status: 'pending' };
   logAction('user_registered', String(user.id), user.id, display_name, { email, display_name });
   res.json({ data: { message: 'Registration submitted. Awaiting admin approval.', user } });
@@ -69,7 +69,7 @@ app.post('/api/auth/login', (req, res) => {
   if (!email || !password) {
     return res.status(400).json({ error: { code: 'VALIDATION_ERROR', message: 'Email and password required' } });
   }
-  const user = db.get('SELECT * FROM users WHERE email = ?', [email]);
+  const user = db.get('SELECT * FROM users WHERE email = $1', [email]);
   if (!user || !bcrypt.compareSync(password, user.password)) {
     return res.status(401).json({ error: { code: 'INVALID_CREDENTIALS', message: 'Invalid credentials' } });
   }
@@ -86,7 +86,7 @@ app.post('/api/auth/login', (req, res) => {
 });
 
 app.get('/api/auth/me', authenticate, (req, res) => {
-  const user = db.get('SELECT id, email, display_name, role FROM users WHERE id = ?', [req.user.id]);
+  const user = db.get('SELECT id, email, display_name, role FROM users WHERE id = $1', [req.user.id]);
   if (!user) return res.status(404).json({ error: { code: 'NOT_FOUND', message: 'User not found' } });
   res.json({ data: user });
 });
@@ -102,7 +102,7 @@ app.get('/api/bookings', authenticate, (req, res) => {
       ORDER BY b.date DESC, b.slot DESC
     `);
   } else {
-    bookings = db.all('SELECT * FROM bookings WHERE user_id = ? ORDER BY date DESC, slot DESC', [req.user.id]);
+    bookings = db.all('SELECT * FROM bookings WHERE user_id = $1 ORDER BY date DESC, slot DESC', [req.user.id]);
   }
   res.json({ data: bookings });
 });
@@ -117,10 +117,10 @@ app.get('/api/bookings/calendar/:year/:month', authenticate, (req, res) => {
     bookings = db.all(`
       SELECT b.*, u.email as user_email, u.display_name as user_display_name
       FROM bookings b JOIN users u ON b.user_id = u.id
-      WHERE b.date >= ? AND b.date <= ?
+      WHERE b.date >= $1 AND b.date <= $1
     `, [startDate, endDate]);
   } else {
-    bookings = db.all('SELECT * FROM bookings WHERE user_id = ? AND date >= ? AND date <= ?', [req.user.id, startDate, endDate]);
+    bookings = db.all('SELECT * FROM bookings WHERE user_id = $1 AND date >= $1 AND date <= $1', [req.user.id, startDate, endDate]);
   }
   res.json({ data: bookings });
 });
@@ -145,7 +145,7 @@ app.post('/api/bookings', authenticate, (req, res) => {
     }
 
     const privateEvent = db.get(
-      'SELECT id FROM bookings WHERE date = ? AND slot = ? AND is_private_event = 1 AND status != ?',
+      'SELECT id FROM bookings WHERE date = $1 AND slot = $1 AND is_private_event = 1 AND status != $1',
       [date, slot, 'cancelled']
     );
 
@@ -154,7 +154,7 @@ app.post('/api/bookings', authenticate, (req, res) => {
     }
 
     const guests = db.get(
-      'SELECT COALESCE(SUM(party_size),0) as total FROM bookings WHERE date = ? AND slot = ? AND status != ? AND is_private_event = 0',
+      'SELECT COALESCE(SUM(party_size),0) as total FROM bookings WHERE date = $1 AND slot = $1 AND status != $1 AND is_private_event = 0',
       [date, slot, 'cancelled']
     );
 
@@ -168,7 +168,7 @@ app.post('/api/bookings', authenticate, (req, res) => {
 
     const result = db.run(`
       INSERT INTO bookings (user_id, date, slot, time, party_size, customer_name, customer_phone, notes, status, is_private_event, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'pending', $9, $10)
     `, [
       req.user.id, date, slot, isPrivate ? '00:00' : (time || '00:00'),
       effectivePartySize, customer_name, customer_phone || '', notes || '', isPrivate ? 1 : 0, nowHK()
@@ -190,7 +190,7 @@ app.post('/api/bookings', authenticate, (req, res) => {
 });
 
 app.patch('/api/bookings/:id/confirm', authenticate, (req, res) => {
-  const booking = db.get('SELECT * FROM bookings WHERE id = ?', [req.params.id]);
+  const booking = db.get('SELECT * FROM bookings WHERE id = $1', [req.params.id]);
   if (!booking) {
     return res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Booking not found' } });
   }
@@ -199,10 +199,10 @@ app.patch('/api/bookings/:id/confirm', authenticate, (req, res) => {
   }
 
   const oldStatus = booking.status;
-  db.run('UPDATE bookings SET status = ? WHERE id = ?', ['confirmed', req.params.id]);
+  db.run('UPDATE bookings SET status = $1 WHERE id = $1', ['confirmed', req.params.id]);
   const updated = db.get(`
     SELECT b.*, u.display_name as user_display_name
-    FROM bookings b JOIN users u ON b.user_id = u.id WHERE b.id = ?`,
+    FROM bookings b JOIN users u ON b.user_id = u.id WHERE b.id = $1`,
     [req.params.id]
   );
 
@@ -215,7 +215,7 @@ app.patch('/api/bookings/:id/confirm', authenticate, (req, res) => {
 });
 
 app.patch('/api/bookings/:id', authenticate, (req, res) => {
-  const booking = db.get('SELECT * FROM bookings WHERE id = ?', [req.params.id]);
+  const booking = db.get('SELECT * FROM bookings WHERE id = $1', [req.params.id]);
   if (!booking) {
     return res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Booking not found' } });
   }
@@ -227,7 +227,7 @@ app.patch('/api/bookings/:id', authenticate, (req, res) => {
 
   if (party_size && party_size !== booking.party_size) {
     const guests = db.get(
-      'SELECT COALESCE(SUM(party_size),0) as total FROM bookings WHERE date = ? AND slot = ? AND id != ? AND status != ?',
+      'SELECT COALESCE(SUM(party_size),0) as total FROM bookings WHERE date = $1 AND slot = $1 AND id != $2 AND status != $1',
       [booking.date, booking.slot, booking.id, 'cancelled']
     );
     if (guests.total + party_size > MAX_GUESTS_PER_SLOT) {
@@ -245,13 +245,13 @@ app.patch('/api/bookings/:id', authenticate, (req, res) => {
 
   db.run(`
     UPDATE bookings SET
-      customer_name = COALESCE(?, customer_name),
-      customer_phone = COALESCE(?, customer_phone),
-      time = COALESCE(?, time),
-      party_size = COALESCE(?, party_size),
-      notes = COALESCE(?, notes),
-      status = COALESCE(?, status)
-    WHERE id = ?
+      customer_name = COALESCE($1, customer_name),
+      customer_phone = COALESCE($2, customer_phone),
+      time = COALESCE($3, time),
+      party_size = COALESCE($4, party_size),
+      notes = COALESCE($5, notes),
+      status = COALESCE($6, status)
+    WHERE id = $1
   `, [
     customer_name || null,
     customer_phone || null,
@@ -264,7 +264,7 @@ app.patch('/api/bookings/:id', authenticate, (req, res) => {
 
   const updated = db.get(`
     SELECT b.*, u.display_name as user_display_name
-    FROM bookings b JOIN users u ON b.user_id = u.id WHERE b.id = ?`,
+    FROM bookings b JOIN users u ON b.user_id = u.id WHERE b.id = $1`,
     [req.params.id]
   );
 
@@ -276,14 +276,14 @@ app.patch('/api/bookings/:id', authenticate, (req, res) => {
 });
 
 app.delete('/api/bookings/:id', authenticate, (req, res) => {
-  const booking = db.get('SELECT * FROM bookings WHERE id = ?', [req.params.id]);
+  const booking = db.get('SELECT * FROM bookings WHERE id = $1', [req.params.id]);
   if (!booking) {
     return res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Booking not found' } });
   }
   if (booking.user_id !== req.user.id && req.user.role !== 'admin') {
     return res.status(403).json({ error: { code: 'FORBIDDEN', message: 'Cannot cancel this booking' } });
   }
-  db.run('UPDATE bookings SET status = ? WHERE id = ?', ['cancelled', req.params.id]);
+  db.run('UPDATE bookings SET status = $1 WHERE id = $1', ['cancelled', req.params.id]);
   logAction('booking_cancelled', String(booking.id), req.user.id, req.user.display_name, {
     customer_name: booking.customer_name, date: booking.date, slot: booking.slot,
     time: booking.time, party_size: booking.party_size
@@ -300,12 +300,12 @@ app.get('/api/users/pending', authenticate, adminOnly, (req, res) => {
 });
 
 app.patch('/api/users/:id/approve', authenticate, adminOnly, (req, res) => {
-  const user = db.get('SELECT * FROM users WHERE id = ?', [req.params.id]);
+  const user = db.get('SELECT * FROM users WHERE id = $1', [req.params.id]);
   if (!user) return res.status(404).json({ error: { code: 'NOT_FOUND', message: 'User not found' } });
   if (user.status !== 'pending') {
     return res.status(400).json({ error: { code: 'INVALID_STATUS', message: 'User is not pending' } });
   }
-  db.run("UPDATE users SET status = 'active' WHERE id = ?", [req.params.id]);
+  db.run("UPDATE users SET status = 'active' WHERE id = $1", [req.params.id]);
   logAction('user_approved', String(user.id), req.user.id, req.user.display_name, {
     email: user.email, display_name: user.display_name
   });
@@ -313,12 +313,12 @@ app.patch('/api/users/:id/approve', authenticate, adminOnly, (req, res) => {
 });
 
 app.patch('/api/users/:id/reject', authenticate, adminOnly, (req, res) => {
-  const user = db.get('SELECT * FROM users WHERE id = ?', [req.params.id]);
+  const user = db.get('SELECT * FROM users WHERE id = $1', [req.params.id]);
   if (!user) return res.status(404).json({ error: { code: 'NOT_FOUND', message: 'User not found' } });
   if (user.status !== 'pending') {
     return res.status(400).json({ error: { code: 'INVALID_STATUS', message: 'User is not pending' } });
   }
-  db.run("UPDATE users SET status = 'rejected' WHERE id = ?", [req.params.id]);
+  db.run("UPDATE users SET status = 'rejected' WHERE id = $1", [req.params.id]);
   logAction('user_rejected', String(user.id), req.user.id, req.user.display_name, {
     email: user.email, display_name: user.display_name
   });
@@ -343,22 +343,22 @@ app.get('/api/system-logs', authenticate, adminOnly, (req, res) => {
   const params = [];
 
   if (req.query.start_date) {
-    where += ' AND created_at >= ?';
+    where += ' AND created_at >= $1';
     // Use space separator (SQLite DATETIME format) so it's compared as HK local time
     params.push(req.query.start_date + ' 00:00:00');
   }
   if (req.query.end_date) {
-    where += ' AND created_at <= ?';
+    where += ' AND created_at <= $1';
     params.push(req.query.end_date + ' 23:59:59');
   }
   if (req.query.action) {
-    where += ' AND action = ?';
+    where += ' AND action = $1';
     params.push(req.query.action);
   }
 
   const totalResult = db.get(`SELECT COUNT(*) as cnt FROM system_logs WHERE ${where}`, params);
   const total = totalResult ? totalResult.cnt : 0;
-  const logs = db.all(`SELECT * FROM system_logs WHERE ${where} ORDER BY created_at DESC LIMIT ? OFFSET ?`, [...params, limit, offset]);
+  const logs = db.all(`SELECT * FROM system_logs WHERE ${where} ORDER BY created_at DESC LIMIT $1 OFFSET $2`, [...params, limit, offset]);
 
   res.json({ data: { logs, total, page, pages: Math.ceil(total / limit) } });
 });
@@ -368,11 +368,11 @@ app.get('/api/system-logs', authenticate, adminOnly, (req, res) => {
 app.get('/api/slots/:date/:slot/capacity', authenticate, (req, res) => {
   const { date, slot } = req.params;
   const guests = db.get(
-    'SELECT COALESCE(SUM(party_size),0) as total FROM bookings WHERE date = ? AND slot = ? AND status != ? AND is_private_event = 0',
+    'SELECT COALESCE(SUM(party_size),0) as total FROM bookings WHERE date = $1 AND slot = $1 AND status != $1 AND is_private_event = 0',
     [date, slot, 'cancelled']
   );
   const privateEvent = db.get(
-    'SELECT id FROM bookings WHERE date = ? AND slot = ? AND is_private_event = 1 AND status != ?',
+    'SELECT id FROM bookings WHERE date = $1 AND slot = $1 AND is_private_event = 1 AND status != $1',
     [date, slot, 'cancelled']
   );
   const isLocked = guests.total >= MAX_GUESTS_PER_SLOT || !!privateEvent;
@@ -401,13 +401,13 @@ app.get('/api/bookings/export/csv', authenticate, adminOnly, (req, res) => {
   let params = [];
   
   if (start_date && end_date) {
-    query += ' WHERE b.date >= ? AND b.date <= ?';
+    query += ' WHERE b.date >= $1 AND b.date <= $1';
     params = [start_date, end_date];
   } else if (start_date) {
-    query += ' WHERE b.date >= ?';
+    query += ' WHERE b.date >= $1';
     params = [start_date];
   } else if (end_date) {
-    query += ' WHERE b.date <= ?';
+    query += ' WHERE b.date <= $1';
     params = [end_date];
   }
   
