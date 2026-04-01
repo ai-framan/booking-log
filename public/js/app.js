@@ -702,6 +702,12 @@ async function handleDayModalAdd(slot) {
     submitBtn.disabled = true;
   }
 
+  // Wake up server with retry
+  for (let i = 0; i < 3; i++) {
+    await fetch('/api/health').catch(() => {});
+    await new Promise(r => setTimeout(r, 600));
+  }
+
   try {
     await api.createBooking({
       date: selectedDate, slot, time, party_size, customer_name, notes, is_private_event: isPrivate
@@ -785,6 +791,12 @@ async function handleMobileQuickAdd(slot) {
   if (bookedTimes.includes(time)) {
     showToast(`Time ${time} is already booked! Choose another.`, 'error');
     return;
+  }
+
+  // Wake up server with retry
+  for (let i = 0; i < 3; i++) {
+    await fetch('/api/health').catch(() => {});
+    await new Promise(r => setTimeout(r, 600));
   }
 
   try {
@@ -924,6 +936,12 @@ async function handleBookingSubmit(e) {
     customer_phone: document.getElementById('booking-phone').value,
     notes: document.getElementById('booking-notes').value,
   };
+
+  // Wake up server with retry
+  for (let i = 0; i < 3; i++) {
+    await fetch('/api/health').catch(() => {});
+    await new Promise(r => setTimeout(r, 600));
+  }
 
   try {
     await api.createBooking(booking, auth.getToken());
