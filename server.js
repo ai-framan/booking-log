@@ -39,7 +39,7 @@ function adminOnly(req, res, next) {
   next();
 }
 
-function await logAction(action, targetId, actorId, actorName, details) {
+function logAction(action, targetId, actorId, actorName, details) {
   await db.run(
     'INSERT INTO system_logs (action, target_id, actor_id, actor_name, details, created_at) VALUES ($1, $2, $3, $4, $5, $6)',
     [action, targetId, actorId, actorName, details ? JSON.stringify(details) : null, nowHK()]
@@ -58,7 +58,7 @@ app.post('/api/auth/register', (req, res) => {
     return res.status(409).json({ error: { code: 'EMAIL_EXISTS', message: 'Email already registered' } });
   }
   const hashed = bcrypt.hashSync(password, 10);
-  const result = await await db.run('INSERT INTO users (email, password, display_name, status, created_at) VALUES ($1, $2, $3, $4, $5)', [email, hashed, display_name, 'pending', nowHK()]);
+  const result = await db.run('INSERT INTO users (email, password, display_name, status, created_at) VALUES ($1, $2, $3, $4, $5)', [email, hashed, display_name, 'pending', nowHK()]);
   const user = { id: result.lastInsertRowid, email, display_name, role: 'member', status: 'pending' };
   await logAction('user_registered', String(user.id), user.id, display_name, { email, display_name });
   res.json({ data: { message: 'Registration submitted. Awaiting admin approval.', user } });
@@ -166,7 +166,7 @@ app.post('/api/bookings', authenticate, (req, res) => {
       return res.status(409).json({ error: { code: 'EXCEEDS_CAPACITY', message: `Only ${MAX_GUESTS_PER_SLOT - guests.total} seats remaining in this session` } });
     }
 
-    const result = await await db.run(`
+    const result = await db.run(`
       INSERT INTO bookings (user_id, date, slot, time, party_size, customer_name, customer_phone, notes, status, is_private_event, created_at)
       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'pending', $9, $10)
     `, [
