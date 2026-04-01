@@ -707,8 +707,8 @@ async function handleDayModalAdd(slot) {
       date: selectedDate, slot, time, party_size, customer_name, notes, is_private_event: isPrivate
     }, auth.getToken());
     showToast(isPrivate ? 'Private Event set! Slot locked.' : '✅ Table Reserved!', 'success');
-    await loadBookings();
-    openDayModal(selectedDate);
+    // Refresh in background (don't wait)
+    loadBookings().then(() => openDayModal(selectedDate));
   } catch (err) {
     showToast(err.message, 'error');
   } finally {
@@ -799,8 +799,7 @@ async function handleMobileQuickAdd(slot) {
     nameInput.value = '';
     paxInput.value = '2';
     showToast('✅ Table Reserved!', 'success');
-    await loadBookings();
-    renderMobileBookings();
+    loadBookings().then(() => renderMobileBookings());
   } catch (err) {
     showToast(err.message, 'error');
   }
@@ -929,8 +928,7 @@ async function handleBookingSubmit(e) {
     await api.createBooking(booking, auth.getToken());
     closeModal();
     showToast('✅ Table Reserved!', 'success');
-    await loadBookings();
-    openMobilePanel(selectedDate);
+    loadBookings().then(() => openMobilePanel(selectedDate));
   } catch (err) {
     showToast(err.message, 'error');
   }
