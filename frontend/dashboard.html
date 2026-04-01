@@ -1,0 +1,332 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Booking Log — Dashboard</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+  <div class="dashboard">
+    <!-- Header -->
+    <header class="header">
+      <div class="header-left">
+        <h1>Booking Log <span id="version-badge" class="badge" style="background:#78716C;font-size:0.6rem">v1.0</span></h1>
+        <span id="user-badge" class="badge"></span>
+      </div>
+      <div class="header-right">
+        <button id="btn-settings" class="btn btn-icon" title="Display Settings">⚙</button>
+        <button id="btn-logout" class="btn btn-secondary">Logout</button>
+      </div>
+    </header>
+
+    <!-- Admin Nav -->
+    <nav id="admin-nav" class="admin-nav hidden">
+      <button id="nav-bookings" class="nav-btn active">Bookings</button>
+      <button id="nav-users" class="nav-btn">Members</button>
+      <button id="nav-logs" class="nav-btn">System Log</button>
+      <button id="nav-approvals" class="nav-btn nav-approvals-btn">
+        🔔 Approvals <span id="pending-badge" class="pending-badge hidden">0</span>
+      </button>
+    </nav>
+
+    <!-- Desktop View: Calendar -->
+    <div id="desktop-view" class="desktop-view">
+      <div class="calendar-nav">
+        <div class="cal-nav-left">
+          <button id="prev-month" class="btn btn-icon cal-nav-arrow">‹</button>
+          <h2 id="current-month-year" class="month-year-btn"></h2>
+          <button id="next-month" class="btn btn-icon cal-nav-arrow">›</button>
+        </div>
+        <div class="cal-nav-right">
+          <button id="today-btn" class="btn btn-secondary cal-today-btn">Today</button>
+        </div>
+      </div>
+
+      <div class="calendar-grid" id="calendar-grid">
+        <div class="calendar-header">
+          <span>Sun</span><span>Mon</span><span>Tue</span><span>Wed</span><span>Thu</span><span>Fri</span><span>Sat</span>
+        </div>
+        <div class="calendar-days" id="calendar-days"></div>
+      </div>
+    </div>
+
+    <!-- Mobile View: Date List -->
+    <div id="mobile-view" class="mobile-view hidden">
+      <div class="mobile-nav">
+        <button id="mobile-prev" class="btn btn-icon">←</button>
+        <input type="date" id="mobile-date">
+        <button id="mobile-next" class="btn btn-icon">→</button>
+      </div>
+      <div id="mobile-bookings"></div>
+    </div>
+
+    <!-- Day Modal (appears on tap) -->
+    <div id="day-modal" class="modal hidden">
+      <div class="day-modal-content">
+        <div class="day-modal-header">
+          <div>
+            <h2 id="day-modal-date"></h2>
+            <span id="day-modal-weekday" class="day-modal-weekday"></span>
+          </div>
+          <button id="day-modal-close" class="btn btn-icon day-modal-close-btn">×</button>
+        </div>
+
+        <div class="day-modal-slots">
+        <!-- Lunch -->
+        <div class="day-slot-block lunch" id="dm-lunch-block">
+          <div class="day-slot-title">
+            <span>🍽️ Lunch <span id="dm-lunch-count" class="day-slot-count"></span></span>
+          </div>
+          <div class="day-private-toggle" id="dm-lunch-private-row">
+            <input type="checkbox" id="dm-private-lunch">
+            <label for="dm-private-lunch">🔒 Private Event</label>
+          </div>
+          <div class="day-time-row">
+            <div id="dm-lunch-chips" class="day-chips"></div>
+          </div>
+          <div class="day-input-row" id="dm-lunch-input-row">
+            <input type="text" id="dm-name-lunch" class="day-input" placeholder="Name *" autocomplete="off">
+            <select id="dm-time-lunch" class="day-time-select"></select>
+            <input type="number" id="dm-pax-lunch" class="day-pax-input" min="1" max="20" value="2">
+            <input type="text" id="dm-remark-lunch" class="day-remark-input" placeholder="Remark">
+            <button class="btn btn-primary day-add-btn" onclick="handleDayModalAdd('lunch')">+</button>
+          </div>
+          <div id="dm-lunch-bookings" class="day-bookings-list">
+            <button class="day-scroll-btn up hidden" id="dm-lunch-up" onclick="scrollBookingList('lunch','up')">▲</button>
+            <button class="day-scroll-btn down hidden" id="dm-lunch-down" onclick="scrollBookingList('lunch','down')">▼</button>
+          </div>
+        </div>
+
+        <!-- Dinner -->
+        <div class="day-slot-block dinner" id="dm-dinner-block">
+          <div class="day-slot-title">
+            <span>🌙 Dinner <span id="dm-dinner-count" class="day-slot-count"></span></span>
+          </div>
+          <div class="day-private-toggle" id="dm-dinner-private-row">
+            <input type="checkbox" id="dm-private-dinner">
+            <label for="dm-private-dinner">🔒 Private Event</label>
+          </div>
+          <div class="day-time-row">
+            <div id="dm-dinner-chips" class="day-chips"></div>
+          </div>
+          <div class="day-input-row" id="dm-dinner-input-row">
+            <input type="text" id="dm-name-dinner" class="day-input" placeholder="Name *" autocomplete="off">
+            <select id="dm-time-dinner" class="day-time-select"></select>
+            <input type="number" id="dm-pax-dinner" class="day-pax-input" min="1" max="20" value="2">
+            <input type="text" id="dm-remark-dinner" class="day-remark-input" placeholder="Remark">
+            <button class="btn btn-primary day-add-btn" onclick="handleDayModalAdd('dinner')">+</button>
+          </div>
+          <div id="dm-dinner-bookings" class="day-bookings-list">
+            <button class="day-scroll-btn up hidden" id="dm-dinner-up" onclick="scrollBookingList('dinner','up')">▲</button>
+            <button class="day-scroll-btn down hidden" id="dm-dinner-down" onclick="scrollBookingList('dinner','down')">▼</button>
+          </div>
+        </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- System Log View -->
+  <div id="system-log-view" class="system-log-view hidden">
+    <div class="log-header">
+      <h2>System Log</h2>
+    </div>
+    <div class="log-filters">
+      <div class="log-filter-group">
+        <label>From</label>
+        <input type="date" id="log-start-date">
+      </div>
+      <div class="log-filter-group">
+        <label>To</label>
+        <input type="date" id="log-end-date">
+      </div>
+      <div class="log-filter-group">
+        <label>Action</label>
+        <select id="log-action-filter">
+          <option value="">All</option>
+          <option value="booking_created">Booking Created</option>
+          <option value="booking_confirmed">Booking Confirmed</option>
+          <option value="booking_modified">Booking Modified</option>
+          <option value="booking_cancelled">Booking Cancelled</option>
+          <option value="user_registered">User Registered</option>
+          <option value="user_approved">User Approved</option>
+          <option value="user_rejected">User Rejected</option>
+          <option value="user_login">User Login</option>
+        </select>
+      </div>
+      <button id="btn-apply-filters" class="btn btn-primary btn-sm">Apply</button>
+    </div>
+    <div id="log-table-container">
+      <table class="log-table">
+        <thead>
+          <tr>
+            <th>Time</th>
+            <th>Action</th>
+            <th>User</th>
+            <th>Details</th>
+          </tr>
+        </thead>
+        <tbody id="log-tbody"></tbody>
+      </table>
+    </div>
+    <div class="log-pagination">
+      <button id="log-prev" class="btn btn-secondary btn-sm" disabled>Previous</button>
+      <span id="log-page-info"></span>
+      <button id="log-next" class="btn btn-secondary btn-sm" disabled>Next</button>
+    </div>
+  </div>
+
+  <!-- Members View -->
+  <div id="members-view" class="members-view hidden">
+    <div class="log-header">
+      <h2>Members</h2>
+    </div>
+    <div id="pending-section">
+      <h3 class="section-title">🔔 Pending Approvals <span id="pending-count-badge" class="pending-badge">0</span></h3>
+      <div id="pending-users-list" class="pending-users-list"></div>
+    </div>
+    <h3 class="section-title" style="margin-top:2rem">All Members</h3>
+    <div id="all-users-list" class="all-users-list"></div>
+  </div>
+
+  <!-- Settings Panel -->
+  <div id="settings-panel" class="modal hidden">
+    <div class="settings-content">
+      <div class="settings-header">
+        <h3>⚙ Display Settings</h3>
+        <button id="settings-close" class="btn btn-icon">×</button>
+      </div>
+      <div class="settings-body">
+        <div class="settings-section">
+          <h4>📐 Calendar Cell Size</h4>
+          <div class="setting-row">
+            <label>Cell Height</label>
+            <input type="range" id="set-cell-height" min="100" max="220" value="160">
+            <span id="lbl-cell-height">160px</span>
+          </div>
+          <div class="setting-row">
+            <label>Padding</label>
+            <input type="range" id="set-cell-padding" min="2" max="16" value="4">
+            <span id="lbl-cell-padding">4px</span>
+          </div>
+        </div>
+        <div class="settings-section">
+          <h4>🎨 Colors</h4>
+          <div class="setting-row">
+            <label>Lunch (unconfirmed)</label>
+            <input type="color" id="set-color-lunch" value="#fef9c3">
+            <input type="text" id="set-color-lunch-txt" value="#fef9c3" class="color-text" size="8">
+          </div>
+          <div class="setting-row">
+            <label>Lunch (confirmed)</label>
+            <input type="color" id="set-color-lunch-conf" value="#fde68a">
+            <input type="text" id="set-color-lunch-conf-txt" value="#fde68a" class="color-text" size="8">
+          </div>
+          <div class="setting-row">
+            <label>Dinner (unconfirmed)</label>
+            <input type="color" id="set-color-dinner" value="#d1fae5">
+            <input type="text" id="set-color-dinner-txt" value="#d1fae5" class="color-text" size="8">
+          </div>
+          <div class="setting-row">
+            <label>Dinner (confirmed)</label>
+            <input type="color" id="set-color-dinner-conf" value="#6ee7b7">
+            <input type="text" id="set-color-dinner-conf-txt" value="#6ee7b7" class="color-text" size="8">
+          </div>
+        </div>
+        <div class="settings-section">
+          <h4>🔤 Font Sizes</h4>
+          <div class="setting-row">
+            <label>Date Number</label>
+            <input type="range" id="set-font-date" min="9" max="16" value="11" step="1">
+            <span id="lbl-font-date">11px</span>
+          </div>
+          <div class="setting-row">
+            <label>Booking Text</label>
+            <input type="range" id="set-font-booking" min="8" max="14" value="9" step="1">
+            <span id="lbl-font-booking">9px</span>
+          </div>
+        </div>
+        <div class="settings-section">
+          <h4>📊 Block Width</h4>
+          <div class="setting-row">
+            <label>Slot Block Width</label>
+            <input type="range" id="set-block-width" min="70" max="100" value="90">
+            <span id="lbl-block-width">90%</span>
+          </div>
+        </div>
+        <div class="settings-actions">
+          <button id="btn-reset-settings" class="btn btn-secondary btn-sm">Reset to Default</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Booking Modal -->
+  <div id="booking-modal" class="modal hidden">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3 id="modal-title">New Booking</h3>
+        <button id="modal-close" class="btn btn-icon">×</button>
+      </div>
+      <form id="booking-form">
+        <div class="form-group">
+          <label for="booking-name">Customer Name *</label>
+          <input type="text" id="booking-name" required>
+        </div>
+        <div class="form-group">
+          <label for="booking-phone">Phone</label>
+          <input type="tel" id="booking-phone">
+        </div>
+        <div class="form-group">
+          <label for="booking-slot">Slot *</label>
+          <select id="booking-slot" required>
+            <option value="lunch">Lunch (12:00 – 15:00)</option>
+            <option value="dinner">Dinner (19:00 – 21:00)</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label for="booking-time">Time *</label>
+          <select id="booking-time" required></select>
+        </div>
+        <div class="form-group">
+          <label for="booking-size">Party Size *</label>
+          <input type="number" id="booking-size" min="1" max="20" value="2" required>
+        </div>
+        <div class="form-group">
+          <label for="booking-notes">Notes</label>
+          <textarea id="booking-notes" rows="2"></textarea>
+        </div>
+        <button type="submit" class="btn btn-primary">Confirm Booking</button>
+      </form>
+    </div>
+  </div>
+
+  <!-- Toast -->
+  <div id="toast" class="toast hidden"></div>
+
+  <!-- Month Picker Modal -->
+  <div id="month-picker-modal" class="modal hidden">
+    <div class="modal-content" style="max-width:320px">
+      <div class="modal-header">
+        <h3>Select Month</h3>
+        <button id="month-picker-close" class="btn btn-icon">×</button>
+      </div>
+      <div class="month-picker-body">
+        <div class="month-picker-year">
+          <button id="picker-year-prev" class="btn btn-icon btn-sm">-</button>
+          <input type="number" id="picker-year-input" class="year-input">
+          <button id="picker-year-next" class="btn btn-icon btn-sm">+</button>
+        </div>
+        <div class="month-grid" id="month-grid"></div>
+      </div>
+    </div>
+  </div>
+
+  <script src="js/auth.js"></script>
+  <script src="js/api.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>

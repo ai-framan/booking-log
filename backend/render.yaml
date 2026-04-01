@@ -1,0 +1,20 @@
+# Render Blueprint - Booking Log v1.0
+# Deploy with: render blueprint create
+
+services:
+  - type: web
+    name: booking-log
+    env: node
+    region: singapore
+    plan: free
+    rootDir: backend
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 3000
+      - key: JWT_SECRET
+        generateValue: true
