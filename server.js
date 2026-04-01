@@ -125,64 +125,67 @@ app.get('/api/bookings/calendar/:year/:month', authenticate, (req, res) => {
 });
 
 app.post('/api/bookings', authenticate, (req, res) => {
-  const { date, slot, time, party_size, customer_name, customer_phone, notes, is_private_event } = req.body;
+  try {
+    const { date, slot, time, party_size, customer_name, customer_phone, notes, is_private_event } = req.body;
 
-  if (!date || !slot || !customer_name) {
-    return res.status(400).json({ error: { code: 'VALIDATION_ERROR', message: 'Missing required fields' } });
+    if (!date || !slot || !customer_name) {
+      return res.status(400).json({ error: { code: 'VALIDATION_ERROR', message: 'Missing required fields' } });
+    }
+
+    if (!['lunch', 'dinner'].includes(slot)) {
+      return res.status(400).json({ error: { code: 'INVALID_SLOT', message: 'Slot must be lunch or dinner' } });
+    }
+
+    const isPrivate = is_private_event ? 1 : 0;
+    const effectivePartySize = isPrivate ? 0 : (parseInt(party_size) || 2);
+
+    if (!isPrivate && (effectivePartySize < 1 || effectivePartySize > 20)) {
+      return res.status(400).json({ error: { code: 'INVALID_PARTY_SIZE', message: 'Party size must be 1-20' } });
+    }
+
+    const privateEvent = db.get(
+      'SELECT id FROM bookings WHERE date = ? AND slot = ? AND is_private_event = 1 AND status != ?',
+      [date, slot, 'cancelled']
+    );
+
+    if (privateEvent) {
+      return res.status(409).json({ error: { code: 'SLOT_LOCKED', message: 'This session is locked (Private Event)' } });
+    }
+
+    const guests = db.get(
+      'SELECT COALESCE(SUM(party_size),0) as total FROM bookings WHERE date = ? AND slot = ? AND status != ? AND is_private_event = 0',
+      [date, slot, 'cancelled']
+    );
+
+    if (guests.total >= MAX_GUESTS_PER_SLOT) {
+      return res.status(409).json({ error: { code: 'SLOT_LOCKED', message: `This session is fully booked (${MAX_GUESTS_PER_SLOT} guests limit reached)` } });
+    }
+
+    if (!isPrivate && guests.total + effectivePartySize > MAX_GUESTS_PER_SLOT) {
+      return res.status(409).json({ error: { code: 'EXCEEDS_CAPACITY', message: `Only ${MAX_GUESTS_PER_SLOT - guests.total} seats remaining in this session` } });
+    }
+
+    const result = db.run(`
+      INSERT INTO bookings (user_id, date, slot, time, party_size, customer_name, customer_phone, notes, status, is_private_event)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?)
+    `, [
+      req.user.id, date, slot, isPrivate ? '00:00' : (time || '00:00'),
+      effectivePartySize, customer_name, customer_phone || '', notes || '', isPrivate ? 1 : 0
+    ]);
+
+    // Return success immediately without fetching back (Railway filesystem workaround)
+    res.json({ data: { id: result.lastInsertRowid, success: true } });
+
+    // Log action in background (non-blocking, non-fatal)
+    setImmediate(() => {
+      logAction(isPrivate ? 'slot_private_locked' : 'booking_created', String(result.lastInsertRowid), req.user.id, req.user.display_name, {
+        customer_name, slot, date, is_private_event: isPrivate
+      });
+    });
+  } catch (err) {
+    console.error('POST /api/bookings error:', err);
+    res.status(500).json({ error: { code: 'INTERNAL_ERROR', message: 'Failed to create booking' } });
   }
-
-  if (!['lunch', 'dinner'].includes(slot)) {
-    return res.status(400).json({ error: { code: 'INVALID_SLOT', message: 'Slot must be lunch or dinner' } });
-  }
-
-  const isPrivate = is_private_event ? 1 : 0;
-  const effectivePartySize = isPrivate ? 0 : (parseInt(party_size) || 2);
-
-  if (!isPrivate && (effectivePartySize < 1 || effectivePartySize > 20)) {
-    return res.status(400).json({ error: { code: 'INVALID_PARTY_SIZE', message: 'Party size must be 1-20' } });
-  }
-
-  const privateEvent = db.get(
-    'SELECT id FROM bookings WHERE date = ? AND slot = ? AND is_private_event = 1 AND status != ?',
-    [date, slot, 'cancelled']
-  );
-
-  if (privateEvent) {
-    return res.status(409).json({ error: { code: 'SLOT_LOCKED', message: 'This session is locked (Private Event)' } });
-  }
-
-  const guests = db.get(
-    'SELECT COALESCE(SUM(party_size),0) as total FROM bookings WHERE date = ? AND slot = ? AND status != ? AND is_private_event = 0',
-    [date, slot, 'cancelled']
-  );
-
-  if (guests.total >= MAX_GUESTS_PER_SLOT) {
-    return res.status(409).json({ error: { code: 'SLOT_LOCKED', message: `This session is fully booked (${MAX_GUESTS_PER_SLOT} guests limit reached)` } });
-  }
-
-  if (!isPrivate && guests.total + effectivePartySize > MAX_GUESTS_PER_SLOT) {
-    return res.status(409).json({ error: { code: 'EXCEEDS_CAPACITY', message: `Only ${MAX_GUESTS_PER_SLOT - guests.total} seats remaining in this session` } });
-  }
-
-  const result = db.run(`
-    INSERT INTO bookings (user_id, date, slot, time, party_size, customer_name, customer_phone, notes, status, is_private_event)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?)
-  `, [
-    req.user.id, date, slot, isPrivate ? '00:00' : (time || '00:00'),
-    effectivePartySize, customer_name, customer_phone || '', notes || '', isPrivate ? 1 : 0
-  ]);
-
-  const booking = db.get(`
-    SELECT b.*, u.display_name as user_display_name
-    FROM bookings b JOIN users u ON b.user_id = u.id WHERE b.id = ?`,
-    [result.lastInsertRowid]
-  );
-
-  logAction(isPrivate ? 'slot_private_locked' : 'booking_created', String(booking.id), req.user.id, req.user.display_name, {
-    customer_name, slot, date, is_private_event: isPrivate
-  });
-
-  res.json({ data: booking });
 });
 
 app.patch('/api/bookings/:id/confirm', authenticate, (req, res) => {
