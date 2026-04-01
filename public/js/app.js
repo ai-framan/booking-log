@@ -1191,9 +1191,11 @@ function renderSystemLogs(logs) {
 
 function formatLogDate(dateStr) {
   const d = new Date(dateStr);
-  return d.toLocaleString('en-US', {
+  return d.toLocaleString('en-HK', {
+    timeZone: 'Asia/Hong_Kong',
     month: 'short', day: 'numeric',
-    hour: '2-digit', minute: '2-digit'
+    hour: '2-digit', minute: '2-digit',
+    hour12: false
   });
 }
 

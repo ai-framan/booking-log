@@ -393,7 +393,9 @@ app.get('/', (req, res) => {
 });
 
 app.get('/api/health', (req, res) => {
-  res.json({ status: 'ok', timestamp: new Date().toISOString() });
+  // Use Hong Kong timezone for timestamp
+  const hkTime = new Date().toLocaleString('en-HK', { timeZone: 'Asia/Hong_Kong' });
+  res.json({ status: 'ok', timestamp: hkTime, iso: new Date().toISOString() });
 });
 
 // ─── GLOBAL ERROR HANDLER ───────────────────────────────
