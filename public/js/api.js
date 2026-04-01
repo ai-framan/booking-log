@@ -21,6 +21,26 @@ async function request(method, path, body = null, token = null) {
   return json.data;
 }
 
+async function requestWithWake(method, path, body = null, token = null) {
+  // Wake up server first
+  for (let i = 0; i < 3; i++) {
+    await fetch('/api/health').catch(() => {});
+    await new Promise(r => setTimeout(r, 400));
+    try {
+      const res = await fetch(API_BASE + path, {
+        method,
+        headers: { 'Content-Type': 'application/json', ...(token && { 'Authorization': `Bearer ${token}` }) },
+        ...(body && { body: JSON.stringify(body) })
+      });
+      const json = await res.json();
+      if (res.ok) return json.data;
+      throw new ApiError(json.error?.code || 'ERROR', json.error?.message || 'Request failed');
+    } catch (e) {
+      if (i === 2) throw e;
+    }
+  }
+}
+
 const api = {
   authRegister: (email, password, displayName) =>
     request('POST', '/auth/register', { email, password, display_name: displayName }),
@@ -33,7 +53,7 @@ const api = {
   getBookings: (token) => request('GET', '/bookings', null, token),
 
   getCalendar: (year, month, token) =>
-    request('GET', `/bookings/calendar/${year}/${month}`, null, token),
+    requestWithWake('GET', `/bookings/calendar/${year}/${month}`, null, token),
 
   createBooking: (booking, token) =>
     request('POST', '/bookings', booking, token),
