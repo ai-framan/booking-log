@@ -53,32 +53,61 @@
       </div>
     </div>
 
-    <!-- Mobile View: Calendar Grid -->
+    <!-- Mobile View: Single-Day Swipe View -->
     <div id="mobile-view" class="mobile-view hidden">
-      <!-- Mobile calendar header -->
-      <div class="mcal-header">
-        <button id="mcal-prev" class="btn btn-icon mcal-nav-btn">‹</button>
-        <div class="mcal-month-label" id="mcal-month-label">April 2026</div>
-        <button id="mcal-next" class="btn btn-icon mcal-nav-btn">›</button>
+      <!-- Swipe hint -->
+      <div class="swipe-hint" id="swipe-hint">
+        <span>👆 向上滑睇上一天</span>
       </div>
 
-      <!-- Day-of-week header -->
-      <div class="mcal-dow">
-        <span>Sun</span><span>Mon</span><span>Tue</span><span>Wed</span><span>Thu</span><span>Fri</span><span>Sat</span>
-      </div>
+      <!-- Single day card -->
+      <div class="swipe-card" id="swipe-card">
+        <!-- Date header -->
+        <div class="swipe-date-header">
+          <button id="sd-prev" class="sd-nav-btn">‹</button>
+          <div class="sd-date-main">
+            <span class="sd-day-num" id="sd-day-num"></span>
+            <div class="sd-date-info">
+              <span class="sd-month-year" id="sd-month-year"></span>
+              <span class="sd-weekday" id="sd-weekday"></span>
+            </div>
+          </div>
+          <button id="sd-next" class="sd-nav-btn">›</button>
+        </div>
 
-      <!-- Scrollable calendar grid -->
-      <div class="mcal-scroll-container" id="mcal-scroll">
-        <div class="mcal-weeks" id="mcal-weeks">
-          <!-- weeks injected by JS -->
+        <!-- Lunch slot -->
+        <div class="sd-slot" id="sd-lunch">
+          <div class="sd-slot-header">
+            <span class="sd-slot-label">🍽️ Lunch</span>
+            <span class="sd-slot-count" id="sd-lunch-count"></span>
+          </div>
+          <div class="sd-slot-bookings" id="sd-lunch-bookings"></div>
+          <div class="sd-slot-form" id="sd-lunch-form">
+            <input type="text" id="sd-lunch-name" class="sd-input" placeholder="Name *" autocomplete="off">
+            <select id="sd-lunch-time" class="sd-select"></select>
+            <input type="number" id="sd-lunch-pax" class="sd-pax" min="1" max="20" value="2">
+            <button class="sd-add-btn" id="sd-lunch-add">+</button>
+          </div>
+        </div>
+
+        <!-- Dinner slot -->
+        <div class="sd-slot" id="sd-dinner">
+          <div class="sd-slot-header">
+            <span class="sd-slot-label">🌙 Dinner</span>
+            <span class="sd-slot-count" id="sd-dinner-count"></span>
+          </div>
+          <div class="sd-slot-bookings" id="sd-dinner-bookings"></div>
+          <div class="sd-slot-form" id="sd-dinner-form">
+            <input type="text" id="sd-dinner-name" class="sd-input" placeholder="Name *" autocomplete="off">
+            <select id="sd-dinner-time" class="sd-select"></select>
+            <input type="number" id="sd-dinner-pax" class="sd-pax" min="1" max="20" value="2">
+            <button class="sd-add-btn" id="sd-dinner-add">+</button>
+          </div>
         </div>
       </div>
 
       <!-- Today shortcut -->
-      <button id="mcal-today" class="btn btn-secondary mcal-today-btn">Today</button>
-
-      <!-- Add booking FAB -->
-      <button id="mcal-add-btn" class="mcal-fab" title="Add Booking">+</button>
+      <button id="sd-today" class="sd-today-btn">Today</button>
     </div>
 
     <!-- Day Modal (appears on tap) -->
@@ -145,17 +174,12 @@
         </div>
       </div>
     </div>
+  </div>
 
-    <!-- System Log View -->
-    <div id="system-log-view" class="system-log-view hidden">
-    <div class="log-header" style="display:flex;justify-content:space-between;align-items:center;">
+  <!-- System Log View -->
+  <div id="system-log-view" class="system-log-view hidden">
+    <div class="log-header">
       <h2>System Log</h2>
-      <div style="display:flex;gap:0.5rem;align-items:center;">
-        <input type="date" id="export-start-date" style="padding:0.3rem;font-size:0.8rem;">
-        <span>-</span>
-        <input type="date" id="export-end-date" style="padding:0.3rem;font-size:0.8rem;">
-        <button id="btn-export-csv" class="btn btn-secondary btn-sm" style="font-size:0.8rem;">📥 CSV</button>
-      </div>
     </div>
     <div class="log-filters">
       <div class="log-filter-group">
@@ -214,8 +238,6 @@
     <h3 class="section-title" style="margin-top:2rem">All Members</h3>
     <div id="all-users-list" class="all-users-list"></div>
   </div>
-
-  </div><!-- end .dashboard -->
 
   <!-- Settings Panel -->
   <div id="settings-panel" class="modal hidden">

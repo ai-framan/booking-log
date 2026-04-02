@@ -59,8 +59,8 @@ document.addEventListener('DOMContentLoaded', () => {
   currentMonth = today.getMonth() + 1;
   selectedDate = formatDate(today);
 
-  // Mobile date init
-  document.getElementById('mobile-date').value = selectedDate;
+  // Mobile date init — no longer needed with SingleDayView
+
 
   // Load HK holidays
   loadHkHolidays();
@@ -81,7 +81,12 @@ async function loadHkHolidays() {
 }
 
 function setupEventListeners() {
-  document.getElementById('btn-logout').addEventListener('click', () => { auth.clearSession(); window.location.href = 'index.html'; });
+  document.getElementById('btn-logout').addEventListener('click', () => {
+    // Defensive wrapper — ensures logout always fires even if auth.logout
+    // is somehow overwritten or event propagation is blocked
+    try { auth.clearSession(); } catch(e) {}
+    window.location.href = 'index.html';
+  });
   document.getElementById('prev-month').addEventListener('click', () => changeMonth(-1));
   document.getElementById('next-month').addEventListener('click', () => changeMonth(1));
   document.getElementById('today-btn').addEventListener('click', goToToday);
@@ -103,22 +108,16 @@ function setupEventListeners() {
   document.getElementById('booking-form').addEventListener('submit', handleBookingSubmit);
   document.getElementById('booking-slot').addEventListener('change', updateTimeOptions);
 
-  // Mobile nav
-  document.getElementById('mobile-prev').addEventListener('click', () => changeMobileDate(-1));
-  document.getElementById('mobile-next').addEventListener('click', () => changeMobileDate(1));
-  document.getElementById('mobile-date').addEventListener('change', (e) => {
-    openDayModal(e.target.value);
-  });
-
-  // Responsive switch
-  let _mobileCalendarInited = false;
+  // Responsive switch — inits SingleDayView on mobile
   const checkMobile = () => {
     const isMobile = window.innerWidth < 769;
     document.getElementById('desktop-view').classList.toggle('hidden', isMobile);
-    document.getElementById('mobile-view').classList.toggle('hidden', !isMobile);
-    if (isMobile && !_mobileCalendarInited) {
-      _mobileCalendarInited = true;
-      setTimeout(() => MobileCalendar.init(), 100);
+    const mv = document.getElementById('mobile-view');
+    if (isMobile) {
+      mv.classList.remove('hidden');
+      SingleDayView.init();
+    } else {
+      mv.classList.add('hidden');
     }
   };
   window.addEventListener('resize', checkMobile);
@@ -128,28 +127,23 @@ function setupEventListeners() {
   document.getElementById('nav-bookings').addEventListener('click', showBookingsView);
   document.getElementById('nav-users').addEventListener('click', showMembersView);
   document.getElementById('nav-logs').addEventListener('click', showLogsView);
-  document.getElementById('nav-approvals').addEventListener('click', showMembersView);
+  document.getElementById('nav-approvals').addEventListener('click', showApprovalsView);
   document.getElementById('btn-apply-filters').addEventListener('click', loadSystemLogs);
   document.getElementById('log-prev').addEventListener('click', () => { logPage--; loadSystemLogs(); });
   document.getElementById('log-next').addEventListener('click', () => { logPage++; loadSystemLogs(); });
 }
 
 // ─── Data Loading ────────────────────────────────────────
-async function loadBookings(retryCount = 0) {
+async function loadBookings() {
   try {
     const token = auth.getToken();
     allBookings = await api.getCalendar(currentYear, currentMonth, token);
     renderCalendar();
-    renderMobileBookings();
-    // Mobile calendar refresh
+    // Mobile single-day view refresh
     if (window.innerWidth < 769) {
-      MobileCalendar.refreshBookings(allBookings);
+      SingleDayView.render();
     }
   } catch (err) {
-    if (retryCount < 3) {
-      await new Promise(r => setTimeout(r, 500 * (retryCount + 1)));
-      return loadBookings(retryCount + 1);
-    }
     showToast('Failed to load bookings: ' + err.message, 'error');
   }
 }
@@ -589,11 +583,13 @@ function renderMobileSlot(slot, label, bookings, btnId) {
 }
 
 function changeMobileDate(delta) {
+  // Legacy — used by old mobile-nav. Now handled by MobileCalendar.
   const input = document.getElementById('mobile-date');
+  if (!input) return;
   const date = new Date(input.value + 'T00:00:00');
   date.setDate(date.getDate() + delta);
   input.value = formatDate(date);
-  openDayModal(input.value);  // Open day modal directly on mobile
+  openDayModal(input.value);
 }
 
 // ─── Month Picker ─────────────────────────────────────────
@@ -704,27 +700,15 @@ async function handleDayModalAdd(slot) {
     return;
   }
 
-  const submitBtn = document.querySelector('#booking-form button[type="submit"]');
-  const originalText = submitBtn ? submitBtn.textContent : '';
-  if (submitBtn) {
-    submitBtn.textContent = 'Reserving...';
-    submitBtn.disabled = true;
-  }
-
   try {
     await api.createBooking({
       date: selectedDate, slot, time, party_size, customer_name, notes, is_private_event: isPrivate
     }, auth.getToken());
-    showToast(isPrivate ? 'Private Event set! Slot locked.' : '✅ Table Reserved!', 'success');
-    // Refresh in background (don't wait)
-    loadBookings().then(() => openDayModal(selectedDate));
+    showToast(isPrivate ? 'Private Event set! Slot locked.' : 'Booking added! (Pending confirmation)');
+    await loadBookings();
+    openDayModal(selectedDate);
   } catch (err) {
     showToast(err.message, 'error');
-  } finally {
-    if (submitBtn) {
-      submitBtn.textContent = originalText;
-      submitBtn.disabled = false;
-    }
   }
 }
 
@@ -807,8 +791,8 @@ async function handleMobileQuickAdd(slot) {
     }, token);
     nameInput.value = '';
     paxInput.value = '2';
-    showToast('✅ Table Reserved!', 'success');
-    loadBookings().then(() => renderMobileBookings());
+    showToast('Booking added!');
+    await loadBookings(); // SingleDayView.render called inside loadBookings
   } catch (err) {
     showToast(err.message, 'error');
   }
@@ -861,7 +845,7 @@ async function saveInlineEdit(bookingId) {
     if (!document.getElementById('day-modal').classList.contains('hidden')) {
       openDayModal(selectedDate);
     } else if (window.innerWidth < 769) {
-      renderMobileBookings();
+      SingleDayView.render();
     }
   } catch (err) {
     showToast(err.message, 'error');
@@ -870,7 +854,7 @@ async function saveInlineEdit(bookingId) {
 
 function cancelInlineEdit(date, slot) {
   if (window.innerWidth < 769) {
-    renderMobileBookings();
+    SingleDayView.render();
   } else {
     openMobilePanel(date);
   }
@@ -936,8 +920,9 @@ async function handleBookingSubmit(e) {
   try {
     await api.createBooking(booking, auth.getToken());
     closeModal();
-    showToast('✅ Table Reserved!', 'success');
-    loadBookings().then(() => openMobilePanel(selectedDate));
+    showToast('Booking created successfully!');
+    await loadBookings();
+    openMobilePanel(selectedDate);
   } catch (err) {
     showToast(err.message, 'error');
   }
@@ -948,10 +933,8 @@ async function cancelBooking(id) {
   try {
     await api.deleteBooking(id, auth.getToken());
     showToast('Booking cancelled');
-    await loadBookings();
-    if (document.getElementById('day-modal').classList.contains('hidden')) {
-      if (window.innerWidth < 769) renderMobileBookings();
-    } else {
+    await loadBookings(); // SingleDayView.render called inside loadBookings
+    if (!document.getElementById('day-modal').classList.contains('hidden')) {
       openDayModal(selectedDate);
     }
   } catch (err) {
@@ -984,7 +967,7 @@ function escapeHtml(str) {
 function showToast(msg, type = 'success') {
   const toast = document.getElementById('toast');
   toast.textContent = msg;
-  toast.style.background = type === 'error' ? '#DC2626' : type === 'success' ? '#059669' : '#1C1917';
+  toast.style.background = type === 'error' ? '#DC2626' : '#1C1917';
   toast.classList.remove('hidden');
   setTimeout(() => toast.classList.add('hidden'), 3000);
 }
@@ -1024,36 +1007,19 @@ function showLogsView() {
   loadSystemLogs();
 }
 
-// ─── CSV Export ──────────────────────────────────────────
-document.getElementById('btn-export-csv')?.addEventListener('click', async () => {
-  const startDate = document.getElementById('export-start-date')?.value;
-  const endDate = document.getElementById('export-end-date')?.value;
-  
-  let url = '/api/bookings/export/csv';
-  const params = [];
-  if (startDate) params.push(`start_date=${startDate}`);
-  if (endDate) params.push(`end_date=${endDate}`);
-  if (params.length > 0) url += '?' + params.join('&');
-  
-  try {
-    const token = auth.getToken();
-    const res = await fetch(url, { headers: { 'Authorization': `Bearer ${token}` } });
-    if (!res.ok) throw new Error('Export failed');
-    
-    const blob = await res.blob();
-    const downloadUrl = window.URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = downloadUrl;
-    a.download = `bookings_${startDate || 'start'}_to_${endDate || 'end'}.csv`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    window.URL.revokeObjectURL(downloadUrl);
-    showToast('CSV downloaded!', 'success');
-  } catch (err) {
-    showToast('Export failed: ' + err.message, 'error');
-  }
-});
+// ─── Approvals View (nav-approvals button) ─────────────────
+function showApprovalsView() {
+  document.getElementById('nav-bookings')?.classList.remove('active');
+  document.getElementById('nav-users')?.classList.remove('active');
+  document.getElementById('nav-logs')?.classList.remove('active');
+  document.getElementById('nav-approvals')?.classList.add('active');
+  document.getElementById('desktop-view').classList.add('hidden');
+  document.getElementById('mobile-view').classList.add('hidden');
+  document.getElementById('system-log-view').classList.add('hidden');
+  document.getElementById('members-view')?.classList.remove('hidden');
+  loadPendingUsers();
+  loadAllUsers();
+}
 
 // ─── Admin: Pending Users ────────────────────────────────
 async function loadPendingCount() {
@@ -1396,359 +1362,232 @@ function initSettingsPanel() {
   bindColorPicker('set-color-dinner', 'set-color-dinner-txt', 'colorDinner');
   bindColorPicker('set-color-dinner-conf', 'set-color-dinner-conf-txt', 'colorDinnerConf');
 }
+/* ============================================================
+   MOBILE CALENDAR GRID — JavaScript additions to app.js
+   Append this to the end of app.js (before closing script tag,
+   or integrate into setupEventListeners / loadBookings)
 
-// ─── MOBILE CALENDAR MODULE ────────────────────────────────────────────────────
-const MobileCalendar = (() => {
-  let _scrollEl = null, _weeksEl = null, _labelEl = null;
-  let _bookingsByDate = {};
-  let _loadedMonths = new Set();
-  let _currentVisibleMonth = '';
-  let _scrollTimer = null;
-  let _initialized = false;
-  const _weekHeight = 72;
-  let _todayStr = formatDate(new Date());
+   ── What it does ──────────────────────────────────────────
+   1. Replaces the flat date-list mobile view with a real
+      calendar grid (7-column week rows, vertically scrollable)
+   2. Scroll up → earlier dates; scroll down → later dates
+   3. Lazy-loads months as user scrolls near edges
+   4. Tap any day → opens the existing Day Modal (openDayModal)
+   5. FAB "+" → quick-add bottom sheet for today
+   6. Desktop calendar is untouched
+   ============================================================ */
 
-  const MONTH_NAMES = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+
+/* ════════════════════════════════════════════════════════════
+   SINGLE-DAY SWIPE VIEW — Mobile (< 769px)
+   Swipe up → next day, swipe down → previous day
+   Shows lunch & dinner slots with bookings inline
+   ════════════════════════════════════════════════════════════ */
+
+const SingleDayView = (() => {
+  let _currentDate = null;
+  let _touchStartY = 0;
+  let _touchEndY = 0;
+  let _inited = false;
+
+  const MONTH_NAMES = ['January','February','March','April','May','June',
+    'July','August','September','October','November','December'];
+  const WEEKDAYS = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
 
   function init() {
-    if (_initialized) return;
-    _scrollEl = document.getElementById('mcal-scroll');
-    _weeksEl  = document.getElementById('mcal-weeks');
-    _labelEl  = document.getElementById('mcal-month-label');
-    if (!_scrollEl || !_weeksEl || !_labelEl) {
-      console.error('[MobileCalendar] DOM elements missing, retrying in 500ms');
-      setTimeout(init, 500);
-      return;
-    }
-    _initialized = true;
-    const now = new Date();
-    const y = now.getFullYear(), m = now.getMonth() + 1;
-    for (let d = -1; d <= 1; d++) {
-      const { year, month } = offsetMonth(y, m, d);
-      _loadedMonths.add(`${year}-${month}`);
-    }
-    buildAllWeeks();
-    scrollToDate(_todayStr, false);
-    bindScroll();
-    bindNav();
-    bindFAB();
-    bindToday();
-    updateLabel(y, m);
-  }
+    if (_inited) return;
+    _inited = true;
+    _currentDate = formatDate(new Date());
 
-  function buildAllWeeks() {
-    const sorted = [..._loadedMonths].sort();
-    _weeksEl.innerHTML = '';
-    for (const key of sorted) {
-      const [yStr, mStr] = key.split('-');
-      appendMonthWeeks(parseInt(yStr), parseInt(mStr));
-    }
-  }
-
-  function appendMonthWeeks(year, month) {
-    if (document.getElementById(`mcal-month-${year}-${month}`)) return;
-    const firstDay = new Date(year, month - 1, 1);
-    const lastDay  = new Date(year, month, 0);
-    const startDow = firstDay.getDay();
-    const daysInMonth = lastDay.getDate();
-
-    const sep = document.createElement('div');
-    sep.className = 'mcal-month-sep';
-    sep.id = `mcal-month-${year}-${month}`;
-    sep.textContent = `${MONTH_NAMES[month - 1]} ${year}`;
-    sep.style.cssText = 'grid-column:1/-1;padding:6px 12px;font-size:0.7rem;font-weight:700;color:var(--color-text-secondary);text-transform:uppercase;letter-spacing:0.06em;background:var(--color-bg);border-bottom:1px solid var(--color-border);position:sticky;top:0;z-index:5;';
-    _weeksEl.appendChild(sep);
-
-    for (let i = 0; i < startDow; i++) _weeksEl.appendChild(makeEmptyCell());
-    for (let d = 1; d <= daysInMonth; d++) {
-      const dateStr = `${year}-${String(month).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
-      _weeksEl.appendChild(makeDayCell(dateStr, d, year, month));
-    }
-    const totalCells = startDow + daysInMonth;
-    const remainder = totalCells % 7;
-    if (remainder !== 0) {
-      for (let i = 0; i < 7 - remainder; i++) _weeksEl.appendChild(makeEmptyCell());
-    }
-  }
-
-  function makeEmptyCell() {
-    const el = document.createElement('div');
-    el.className = 'mcal-day mcal-day-empty';
-    return el;
-  }
-
-  function makeDayCell(dateStr, day, year, month) {
-    const el = document.createElement('div');
-    const dow = new Date(year, month - 1, day).getDay();
-    const isPast = dateStr < _todayStr;
-    const isToday = dateStr === _todayStr;
-    const holiday = findHoliday(dateStr);
-
-    let cls = 'mcal-day';
-    if (isPast) cls += ' mcal-day-past';
-    if (isToday) cls += ' mcal-day-today';
-    if (dow === 0) cls += ' mcal-day-sun';
-    if (dow === 6) cls += ' mcal-day-sat';
-    if (holiday) cls += ' mcal-day-holiday';
-    el.className = cls;
-    el.dataset.date = dateStr;
-
-    const holidayHtml = holiday ? `<span class="mcal-day-holiday-badge">${escapeHtml(holiday.name_zh || holiday.name)}</span>` : '';
-    const numHtml = isToday ? `<span class="mcal-day-num mcal-day-today">${day}</span>` : `<span class="mcal-day-num">${day}</span>`;
-    el.innerHTML = numHtml + holidayHtml + renderDaySlotIndicators(dateStr);
-
-    if (!isPast) el.addEventListener('click', () => onDayTap(dateStr));
-    return el;
-  }
-
-  function renderDaySlotIndicators(dateStr) {
-    const bookings = _bookingsByDate[dateStr] || [];
-    const lunch = bookings.filter(b => b.slot === 'lunch' && b.status !== 'cancelled');
-    const dinner = bookings.filter(b => b.slot === 'dinner' && b.status !== 'cancelled');
-    const lunchPrivate = lunch.some(b => b.is_private_event);
-    const dinnerPrivate = dinner.some(b => b.is_private_event);
-    const lunchCount = lunch.filter(b => !b.is_private_event).length;
-    const dinnerCount = dinner.filter(b => !b.is_private_event).length;
-    const lunchGuests = lunch.reduce((s, b) => s + (b.party_size || 0), 0);
-    const dinnerGuests = dinner.reduce((s, b) => s + (b.party_size || 0), 0);
-
-    const makeSlot = (type, count, guests, isPrivate) => {
-      if (count === 0 && !isPrivate) return `<div class="mcal-slot ${type} mcal-slot-empty"></div>`;
-      const icon = isPrivate ? '🔒' : (type === 'lunch' ? '🍽' : '🌙');
-      const text = isPrivate ? 'Private' : `${count}·${guests}p`;
-      return `<div class="mcal-slot ${type}${isPrivate ? ' has-private' : ' has-booking'}" title="${type}: ${text}"><span>${icon}</span><span>${text}</span></div>`;
-    };
-
-    return `<div class="mcal-slots">${makeSlot('lunch', lunchCount, lunchGuests, lunchPrivate)}${makeSlot('dinner', dinnerCount, dinnerGuests, dinnerPrivate)}</div>`;
-  }
-
-  function findHoliday(dateStr) {
-    for (const holidays of Object.values(hkHolidays || {})) {
-      const found = holidays.find(h => h.date === dateStr);
-      if (found) return found;
-    }
-    return null;
-  }
-
-  function onDayTap(dateStr) {
-    document.querySelectorAll('.mcal-day.mcal-day-selected').forEach(el => el.classList.remove('mcal-day-selected'));
-    document.querySelector(`.mcal-day[data-date="${dateStr}"]`)?.classList.add('mcal-day-selected');
-    openDayModal(dateStr);
-  }
-
-  function bindScroll() {
-    if (!_scrollEl) return;
-    _scrollEl.addEventListener('scroll', () => {
-      clearTimeout(_scrollTimer);
-      const scrollTop = _scrollEl.scrollTop;
-      const scrollHeight = _scrollEl.scrollHeight;
-      const clientHeight = _scrollEl.clientHeight;
-      const threshold = _weekHeight * 2;
-      if (scrollTop < threshold) loadMoreWeeks('past');
-      else if (scrollTop + clientHeight > scrollHeight - threshold) loadMoreWeeks('future');
-      _scrollTimer = setTimeout(() => {
-        const visible = guessVisibleMonth();
-        if (visible && visible !== _currentVisibleMonth) {
-          _currentVisibleMonth = visible;
-          const [yStr, mStr] = visible.split('-');
-          updateLabel(parseInt(yStr), parseInt(mStr));
-        }
-      }, 250);
-    }, { passive: true });
-  }
-
-  function guessVisibleMonth() {
-    const seps = document.querySelectorAll('.mcal-month-sep');
-    let closest = null, minDist = Infinity;
-    seps.forEach(sep => {
-      const dist = Math.abs(sep.getBoundingClientRect().top - _scrollEl.getBoundingClientRect().top);
-      if (dist < minDist) { minDist = dist; closest = sep.id.replace('mcal-month-', ''); }
+    document.getElementById('sd-prev')?.addEventListener('click', () => changeDay(-1));
+    document.getElementById('sd-next')?.addEventListener('click', () => changeDay(1));
+    document.getElementById('sd-today')?.addEventListener('click', () => {
+      _currentDate = formatDate(new Date());
+      render();
     });
-    return closest || _currentVisibleMonth;
-  }
+    document.getElementById('sd-lunch-add')?.addEventListener('click', () => handleSdAdd('lunch'));
+    document.getElementById('sd-dinner-add')?.addEventListener('click', () => handleSdAdd('dinner'));
 
-  let _loadingPast = false, _loadingFuture = false;
-
-  function loadMoreWeeks(direction) {
-    const sorted = [..._loadedMonths].sort();
-    if (direction === 'past' && !_loadingPast) {
-      _loadingPast = true;
-      const [yStr, mStr] = sorted[0].split('-');
-      const { year, month } = offsetMonth(parseInt(yStr), parseInt(mStr), -1);
-      const key = `${year}-${month}`;
-      if (!_loadedMonths.has(key)) { _loadedMonths.add(key); prependMonthWeeks(year, month); }
-      _loadingPast = false;
-    } else if (direction === 'future' && !_loadingFuture) {
-      _loadingFuture = true;
-      const last = sorted[sorted.length - 1];
-      const [yStr, mStr] = last.split('-');
-      const { year, month } = offsetMonth(parseInt(yStr), parseInt(mStr), 1);
-      const key = `${year}-${month}`;
-      if (!_loadedMonths.has(key)) { _loadedMonths.add(key); appendMonthWeeks(year, month); }
-      _loadingFuture = false;
+    const card = document.getElementById('swipe-card');
+    if (card) {
+      card.addEventListener('touchstart', onTouchStart, { passive: true });
+      card.addEventListener('touchend', onTouchEnd, { passive: true });
     }
-  }
 
-  function prependMonthWeeks(year, month) {
-    const firstDay = new Date(year, month - 1, 1);
-    const lastDay = new Date(year, month, 0);
-    const startDow = firstDay.getDay();
-    const daysInMonth = lastDay.getDate();
-    const frag = document.createDocumentFragment();
-
-    const sep = document.createElement('div');
-    sep.className = 'mcal-month-sep';
-    sep.id = `mcal-month-${year}-${month}`;
-    sep.textContent = `${MONTH_NAMES[month - 1]} ${year}`;
-    sep.style.cssText = 'padding:6px 12px;font-size:0.7rem;font-weight:700;color:var(--color-text-secondary);text-transform:uppercase;letter-spacing:0.06em;background:var(--color-bg);border-bottom:1px solid var(--color-border);position:sticky;top:0;z-index:5;';
-
-    for (let i = 0; i < startDow; i++) frag.appendChild(makeEmptyCell());
-    for (let d = 1; d <= daysInMonth; d++) {
-      const dateStr = `${year}-${String(month).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
-      frag.appendChild(makeDayCell(dateStr, d, year, month));
-    }
-    const totalCells = startDow + daysInMonth;
-    const remainder = totalCells % 7;
-    if (remainder !== 0) { for (let i = 0; i < 7 - remainder; i++) frag.appendChild(makeEmptyCell()); }
-
-    const firstSep = _weeksEl.querySelector('.mcal-month-sep');
-    if (firstSep) { _weeksEl.insertBefore(sep, firstSep); firstSep.parentNode.insertBefore(frag, firstSep); }
-    else { _weeksEl.appendChild(sep); _weeksEl.appendChild(frag); }
-  }
-
-  function updateLabel(year, month) {
-    if (_labelEl) _labelEl.textContent = `${MONTH_NAMES[month - 1]} ${year}`;
-  }
-
-  function bindNav() {
-    document.getElementById('mcal-prev')?.addEventListener('click', () => {
-      const sorted = [..._loadedMonths].sort();
-      const [yStr, mStr] = sorted[0].split('-');
-      const { year, month } = offsetMonth(parseInt(yStr), parseInt(mStr), -1);
-      scrollToMonth(year, month, 'past');
-    });
-    document.getElementById('mcal-next')?.addEventListener('click', () => {
-      const sorted = [..._loadedMonths].sort();
-      const last = sorted[sorted.length - 1];
-      const [yStr, mStr] = last.split('-');
-      const { year, month } = offsetMonth(parseInt(yStr), parseInt(mStr), 1);
-      scrollToMonth(year, month, 'future');
-    });
-  }
-
-  function scrollToMonth(year, month, direction) {
-    const key = `${year}-${month}`;
-    if (!_loadedMonths.has(key)) { _loadedMonths.add(key); if (direction === 'past') prependMonthWeeks(year, month); else appendMonthWeeks(year, month); }
-    const sep = document.getElementById(`mcal-month-${year}-${month}`);
-    if (sep && _scrollEl) sep.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    updateLabel(year, month);
-    _currentVisibleMonth = key;
-  }
-
-  function scrollToDate(dateStr, animate = true) {
-    const cell = document.querySelector(`.mcal-day[data-date="${dateStr}"]`);
-    if (!cell || !_scrollEl) return;
-    cell.scrollIntoView({ behavior: animate ? 'smooth' : 'auto', block: 'center' });
-    const d = new Date(dateStr + 'T00:00:00');
-    updateLabel(d.getFullYear(), d.getMonth() + 1);
-    _currentVisibleMonth = `${d.getFullYear()}-${d.getMonth() + 1}`;
-  }
-
-  let _quickSlot = 'lunch';
-
-  function bindFAB() {
-    document.getElementById('mcal-add-btn')?.addEventListener('click', openQuickAdd);
-  }
-
-  function openQuickAdd() {
-    const d = new Date(_todayStr + 'T00:00:00');
-    const weekdays = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
-    const dateLabel = `${d.getDate()} ${MONTH_NAMES[d.getMonth()]} ${d.getFullYear()} (${weekdays[d.getDay()]})`;
-    document.getElementById('mcal-quick-add-panel')?.remove();
-
-    const panel = document.createElement('div');
-    panel.className = 'mcal-quick-add';
-    panel.id = 'mcal-quick-add-panel';
-    panel.innerHTML = `<div class="mcal-quick-add-header"><h4>📅 New Booking — ${dateLabel}</h4><button class="mcal-quick-add-close" onclick="MobileCalendar.closeQuickAdd()">×</button></div>
-      <div class="mcal-date-badge">${dateLabel}</div>
-      <div class="mcal-q-slot-toggle">
-        <button class="mcal-q-slot-btn active" id="mcal-q-slot-lunch" onclick="MobileCalendar.setQuickSlot('lunch')">🍽 Lunch</button>
-        <button class="mcal-q-slot-btn" id="mcal-q-slot-dinner" onclick="MobileCalendar.setQuickSlot('dinner')">🌙 Dinner</button>
-      </div>
-      <div class="mcal-quick-add-row"><input type="text" id="mcal-q-name" class="mcal-q-input" placeholder="Customer Name *" autocomplete="off"></div>
-      <div class="mcal-quick-add-row"><select id="mcal-q-time" class="mcal-q-select"></select><input type="number" id="mcal-q-pax" class="mcal-q-pax" min="1" max="20" value="2"><input type="text" id="mcal-q-remark" class="mcal-q-input" placeholder="Remark (optional)"></div>
-      <button class="mcal-q-submit" onclick="MobileCalendar.submitQuickAdd()">Add Booking</button>`;
-    document.body.appendChild(panel);
     populateTimeSelect('lunch');
-    setTimeout(() => document.getElementById('mcal-q-name')?.focus(), 200);
+    populateTimeSelect('dinner');
+    render();
   }
 
   function populateTimeSelect(slot) {
-    const sel = document.getElementById('mcal-q-time');
+    const sel = document.getElementById(`sd-${slot}-time`);
     if (!sel) return;
-    const times = slot === 'lunch' ? ['11:30','12:00','12:30','13:00','13:30','14:00','14:30'] : ['17:30','18:00','18:30','19:00','19:30','20:00','20:30','21:00'];
-    sel.innerHTML = times.map(t => `<option value="${t}">${t}</option>`).join('');
+    sel.innerHTML = SLOT_TIMES[slot].map(t => `<option value="${t}">${t}</option>`).join('');
   }
 
-  function setQuickSlot(slot) {
-    _quickSlot = slot;
-    document.querySelectorAll('.mcal-q-slot-btn').forEach(btn => btn.classList.toggle('active', btn.id === `mcal-q-slot-${slot}`));
-    populateTimeSelect(slot);
+  function onTouchStart(e) {
+    _touchStartY = e.changedTouches[0].screenY;
   }
 
-  async function submitQuickAdd() {
-    const name = document.getElementById('mcal-q-name')?.value.trim();
-    const time = document.getElementById('mcal-q-time')?.value;
-    const pax = parseInt(document.getElementById('mcal-q-pax')?.value) || 2;
-    const notes = document.getElementById('mcal-q-remark')?.value.trim();
-    if (!name) { showToast('Please enter customer name', 'error'); return; }
-    try {
-      await api.createBooking({ date: _todayStr, slot: _quickSlot, time, party_size: pax, customer_name: name, notes }, auth.getToken());
-      showToast('Booking added!');
-      closeQuickAdd();
-      await loadBookings();
-    } catch (err) { showToast(err.message, 'error'); }
+  function onTouchEnd(e) {
+    _touchEndY = e.changedTouches[0].screenY;
+    const delta = _touchStartY - _touchEndY;
+    if (Math.abs(delta) < 50) return;
+    changeDay(delta > 0 ? 1 : -1);
   }
 
-  function closeQuickAdd() { document.getElementById('mcal-quick-add-panel')?.remove(); }
+  function changeDay(delta) {
+    const card = document.getElementById('swipe-card');
+    const animClass = delta > 0 ? 'animate-up' : 'animate-down';
+    card?.classList.remove('animate-up', 'animate-down');
+    void card?.offsetWidth;
+    card?.classList.add(animClass);
 
-  function bindToday() { document.getElementById('mcal-today')?.addEventListener('click', () => scrollToDate(_todayStr)); }
+    const d = new Date(_currentDate + 'T00:00:00');
+    d.setDate(d.getDate() + delta);
+    _currentDate = formatDate(d);
+    render();
+  }
 
-  function refreshBookings(allBookingsData) {
-    _bookingsByDate = {};
-    for (const b of allBookingsData) {
-      if (b.status === 'cancelled') continue;
-      if (!_bookingsByDate[b.date]) _bookingsByDate[b.date] = [];
-      _bookingsByDate[b.date].push(b);
-    }
-    document.querySelectorAll('.mcal-day[data-date]').forEach(cell => {
-      const dateStr = cell.dataset.date;
-      if (!dateStr) return;
-      const d = new Date(dateStr + 'T00:00:00');
-      const day = d.getDate(), month = d.getMonth() + 1, year = d.getFullYear();
-      const dow = d.getDay();
-      const holiday = findHoliday(dateStr);
-      const isPast = dateStr < _todayStr, isToday = dateStr === _todayStr;
-      let cls = 'mcal-day';
-      if (isPast) cls += ' mcal-day-past';
-      if (isToday) cls += ' mcal-day-today';
-      if (dow === 0) cls += ' mcal-day-sun';
-      if (dow === 6) cls += ' mcal-day-sat';
-      if (holiday) cls += ' mcal-day-holiday';
-      cell.className = cls;
-      const holidayHtml = holiday ? `<span class="mcal-day-holiday-badge">${escapeHtml(holiday.name_zh || holiday.name)}</span>` : '';
-      const numHtml = isToday ? `<span class="mcal-day-num mcal-day-today">${day}</span>` : `<span class="mcal-day-num">${day}</span>`;
-      cell.innerHTML = numHtml + holidayHtml + renderDaySlotIndicators(dateStr);
-      if (!isPast) cell.addEventListener('click', () => onDayTap(dateStr));
+  function render() {
+    if (!_currentDate) return;
+
+    const d = new Date(_currentDate + 'T00:00:00');
+    const day = d.getDate();
+    const month = d.getMonth() + 1;
+    const year = d.getFullYear();
+    const dow = d.getDay();
+
+    document.getElementById('sd-day-num').textContent = day;
+    document.getElementById('sd-month-year').textContent = `${MONTH_NAMES[month - 1]} ${year}`;
+    document.getElementById('sd-weekday').textContent = WEEKDAYS[dow];
+
+    const dayBookings = allBookings.filter(b => b.date === _currentDate && b.status !== 'cancelled');
+    const lunchBookings = dayBookings.filter(b => b.slot === 'lunch');
+    const dinnerBookings = dayBookings.filter(b => b.slot === 'dinner');
+
+    const lunchPrivate = lunchBookings.some(b => b.is_private_event);
+    const dinnerPrivate = dinnerBookings.some(b => b.is_private_event);
+    const lunchGuests = lunchBookings.reduce((s, b) => s + (b.party_size || 0), 0);
+    const dinnerGuests = dinnerBookings.reduce((s, b) => s + (b.party_size || 0), 0);
+
+    document.getElementById('sd-lunch-count').textContent =
+      lunchPrivate ? '🔒 Private' : `${lunchGuests}/16`;
+    document.getElementById('sd-dinner-count').textContent =
+      dinnerPrivate ? '🔒 Private' : `${dinnerGuests}/16`;
+
+    renderSlotBookings('lunch', lunchBookings, lunchPrivate);
+    renderSlotBookings('dinner', dinnerBookings, dinnerPrivate);
+
+    // Show/hide forms
+    ['lunch', 'dinner'].forEach(slot => {
+      const pvt = slot === 'lunch' ? lunchPrivate : dinnerPrivate;
+      const guests = slot === 'lunch' ? lunchGuests : dinnerGuests;
+      const form = document.getElementById(`sd-${slot}-form`);
+      if (form) {
+        form.style.display = (pvt || guests >= 16) ? 'none' : '';
+      }
     });
   }
 
-  function offsetMonth(year, month, delta) {
-    let m = month + delta, y = year;
-    while (m > 12) { m -= 12; y++; }
-    while (m < 1) { m += 12; y--; }
-    return { year: y, month: m };
+  function renderSlotBookings(slot, bookings, isPrivate) {
+    const container = document.getElementById(`sd-${slot}-bookings`);
+    if (!container) return;
+
+    if (isPrivate) {
+      const pb = bookings.find(b => b.is_private_event);
+      container.innerHTML = `<div class="sd-private-banner">🔒 Private Event: ${escapeHtml(pb?.customer_name || 'Locked')}</div>`;
+      return;
+    }
+
+    if (bookings.length === 0) {
+      container.innerHTML = `<div class="sd-slot-empty">No bookings yet — add below 👇</div>`;
+      return;
+    }
+
+    const isAdmin = auth.isAdmin();
+    container.innerHTML = bookings.map(b => `
+      <div class="sd-booking-row ${slot}" id="sd-booking-${b.id}">
+        <span class="sd-booking-time">${b.time}</span>
+        <span class="sd-booking-name">${escapeHtml(b.customer_name)}</span>
+        <span class="sd-booking-pax">${b.party_size}p</span>
+        ${b.status === 'pending' ? '<span class="sd-booking-pending">PENDING</span>' : ''}
+        ${b.status === 'confirmed' ? '<span class="sd-booking-confirmed">✓</span>' : ''}
+        <div class="sd-booking-actions">
+          ${isAdmin && b.status === 'pending' ?
+            `<button class="sd-btn-edit" onclick="SingleDayView.confirmBooking(${b.id})">✓</button>` : ''}
+          ${(isAdmin || b.user_id === auth.getUser()?.id) ?
+            `<button class="sd-btn-cancel" onclick="SingleDayView.cancelBooking(${b.id})">×</button>` : ''}
+        </div>
+      </div>
+    `).join('');
   }
 
-  return { init, refreshBookings, setQuickSlot, submitQuickAdd, closeQuickAdd, scrollToDate };
+  async function handleSdAdd(slot) {
+    const nameInput = document.getElementById(`sd-${slot}-name`);
+    const timeSelect = document.getElementById(`sd-${slot}-time`);
+    const paxInput = document.getElementById(`sd-${slot}-pax`);
+
+    const customer_name = nameInput.value.trim();
+    const time = timeSelect.value;
+    const party_size = parseInt(paxInput.value) || 2;
+
+    if (!customer_name) {
+      showToast('Please enter customer name', 'error');
+      nameInput.focus();
+      return;
+    }
+
+    const dayBookings = allBookings.filter(b => b.date === _currentDate && b.slot === slot && b.status !== 'cancelled');
+    const totalGuests = dayBookings.reduce((s, b) => s + (b.party_size || 0), 0);
+
+    if (dayBookings.some(b => b.is_private_event)) {
+      showToast('Slot is locked (Private Event)', 'error');
+      return;
+    }
+    if (totalGuests >= 16) {
+      showToast('Session full! 16 guests limit reached.', 'error');
+      return;
+    }
+    if (totalGuests + party_size > 16) {
+      showToast(`Only ${16 - totalGuests} seats remaining!`, 'error');
+      return;
+    }
+
+    try {
+      await api.createBooking({ date: _currentDate, slot, time, party_size, customer_name }, auth.getToken());
+      showToast('Booking added!');
+      nameInput.value = '';
+      paxInput.value = '2';
+      await loadBookings();
+      render();
+    } catch (err) {
+      showToast(err.message, 'error');
+    }
+  }
+
+  async function confirmBooking(id) {
+    try {
+      await api.confirmBooking(id, auth.getToken());
+      showToast('Booking confirmed!');
+      await loadBookings();
+      render();
+    } catch (err) {
+      showToast(err.message, 'error');
+    }
+  }
+
+  async function cancelBooking(id) {
+    if (!confirm('Cancel this booking?')) return;
+    try {
+      await api.deleteBooking(id, auth.getToken());
+      showToast('Booking cancelled');
+      await loadBookings();
+      render();
+    } catch (err) {
+      showToast(err.message, 'error');
+    }
+  }
+
+  return { init, render, changeDay, confirmBooking, cancelBooking };
 })();
