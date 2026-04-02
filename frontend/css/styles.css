@@ -423,6 +423,8 @@ body {
 .mobile-view {
   flex: 1;
   padding: 1rem;
+  display: flex;
+  flex-direction: column;
 }
 
 @media (min-width: 769px) {
